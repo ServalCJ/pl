@@ -1,0 +1,192 @@
+/*
+ * Syntax extension for monitor declarations.
+ */
+TypeDecl type_declaration = monitor_declaration.d {: return d; :};
+
+MonitorDecl monitor_declaration =
+    CONTEXTGROUP IDENTIFIER LPAREN formal_parameter_list.l? RPAREN
+        perclause_jnese_opt.p super.s? monitor_body.b
+    {: MonitorDecl retval = new MonitorDecl(new Modifiers(new List().add(new Modifier("public"))), IDENTIFIER, l, p, s, b);
+       for (java.util.Iterator<PrePair> i = Program.PRETABLE.iterator(); i.hasNext(); ) {
+         PrePair pair = i.next();
+         if (pair.getType() == null) {
+           pair.setType(retval);
+         }
+       }
+       return retval; :}
+ |  GLOBAL CONTEXTGROUP IDENTIFIER LPAREN formal_parameter_list.l? RPAREN
+        perclause_jnese_opt.p super.s? monitor_body.b
+    {: GlobalMonitorDecl retval = new GlobalMonitorDecl(new Modifiers(new List().add(new Modifier("public"))), IDENTIFIER, l, p, s, b);
+       for (java.util.Iterator<PrePair> i = Program.PRETABLE.iterator(); i.hasNext(); ) {
+         PrePair pair = i.next();
+         if (pair.getType() == null) {
+           pair.setType(retval);
+         }
+       }
+       return retval; :}
+    ;
+
+Opt perclause_jnese_opt =
+    perclause_jnese.a {: return new Opt(a); :}
+ |  /* epsilon */ {: return new Opt(); :};
+
+PerClause perclause_jnese =
+    PERTARGET LPAREN pointcut_expr.pc RPAREN
+    {: return new PerTarget(pc); :}
+ |  PERTHIS LPAREN pointcut_expr.pc RPAREN
+    {: return new PerThis(pc); :};
+
+List monitor_body =
+    LBRACE RBRACE {: return new List(); :}
+ |
+    LBRACE monitor_body_declarations.d RBRACE {: return d; :};
+
+List monitor_body_declarations =
+    monitor_body_declaration.d {: return new List().add(d); :}
+ |
+    monitor_body_declarations.l monitor_body_declaration.d
+    {: return l.add(d); :};
+
+BodyDecl monitor_body_declaration =
+    context_declaration.c {: return c; :}
+ |  activate_declaration.a {: return a; :}
+ |  subscribe_declaration.s {: return s; :}
+ |  subscriber_types_decl.s {: return s; :};
+
+ContextDecl context_declaration =
+    CONTEXT IDENTIFIER fluent_spec.f SEMICOLON
+    {: return new ContextDecl(IDENTIFIER,f); :};
+
+FluentSpec fluent_spec =
+    active_until_spec.a {: return a; :}
+ |  pointcut_spec.p {: return p; :};
+
+ActiveUntilSpec active_until_spec =
+    ACTIVE LPAREN formal_parameter_list.la? RPAREN action_spec.a
+      UNTIL LPAREN formal_parameter_list.lu? RPAREN action_spec.u
+    {: a.setParameterList(la);
+       u.setParameterList(lu);
+       return new ActiveUntilSpec(a,u); :}
+ | ACTIVE named_event.a UNTIL named_event.u {: return new ActiveUntilSpec(a,u); :};
+
+PointcutActionSpec action_spec =
+    AFTER pointcut_expr.p {: return new AfterActionSpec(null,p); :}
+ |  BEFORE pointcut_expr.p {: return new BeforeActionSpec(null,p); :};
+
+PointcutSpec pointcut_spec =
+    pointcut_expr.p {: return new PointcutSpec(p); :};
+
+EventActionSpec named_event =
+    event_pattern.n  {: return new EventActionSpec(n); :};
+
+List event_pattern =
+    IDENTIFIER {: return new List().add(new EventID(IDENTIFIER)); :}
+ |  event_pattern.l DOT IDENTIFIER {: return l.add(new EventID(IDENTIFIER)); :};
+
+ActivateDecl activate_declaration =
+    ACTIVATE IDENTIFIER WHEN context_condition.c SEMICOLON
+    {: return new ActivateDecl(IDENTIFIER, c); :};
+
+ContextCond context_condition =
+    and_context_condition.a {: return a; :}
+ |  context_condition.l PC_OROR and_context_condition.r
+    {: return new OrCond(l,r); :};
+
+ContextCond and_context_condition =
+    unary_context_condition.u {: return u; :}
+ |  and_context_condition.l PC_ANDAND unary_context_condition.r
+    {: return new AndCond(l,r); :};
+
+ContextCond unary_context_condition =
+    IDENTIFIER {: return new AtomCond(IDENTIFIER); :}
+ |  PC_NOTJVN unary_context_condition.u {: return new NotCond(u); :}
+ |  LPAREN context_condition.c RPAREN {: return c; :}
+ |  fluent_spec.f {:
+      String id = "__Context" + Program.contextCounter;
+      Program.contextCounter++;
+      ContextDecl c = new ContextDecl(id,f);
+      Program.PRETABLE.add(new PrePair(null,id,c));
+      return new AtomCond(id); :};
+
+SubscribeDecl subscribe_declaration =
+    SUBSCRIBERS LPAREN formal_parameter_list.l RPAREN
+    COLON pointcut_expr.p LBRACE subscribe_spec_list.lst RBRACE
+    {: return new SubscribeDecl(l, p, lst); :};
+
+List subscribe_spec_list =
+    subscribe_spec_stmt.s {: return new List().add(s); :}
+ |  subscribe_spec_list.l subscribe_spec_stmt.s {: return l.add(s); :};
+
+SubscribeSpec subscribe_spec_stmt =
+    subscribe_spec.s SEMICOLON {: return s; :};
+
+SubscribeSpec subscribe_spec =
+    SUBSCRIBE LPAREN IDENTIFIER RPAREN
+    {: return new Subscribe(IDENTIFIER); :}
+ |  UNSUBSCRIBE LPAREN IDENTIFIER RPAREN
+    {: return new Unsubscribe(IDENTIFIER); :};
+
+PointcutExpr basic_pointcut_expr =
+    MONITOR LPAREN type_id_star.t RPAREN
+    {: return new MonitorPointcutExpr(t); :};
+
+SubscriberTypesDecl subscriber_types_decl =
+    SUBSCRIBERTYPES COLON subscriber_type_list.l SEMICOLON
+    {: return new SubscriberTypesDecl(l); :};
+
+List subscriber_type_list =
+    subscriber_type.s {: return new List().add(s); :}
+ |  subscriber_type_list.l COMMA subscriber_type.s
+    {: return l.add(s); :};
+
+SubscriberType subscriber_type = IDENTIFIER {: return new SubscriberType(IDENTIFIER); :};
+
+/*
+ * Syntax extensions for layer declarations.
+ */
+BodyDecl class_member_declaration = layer_declaration.l {: return l; :};
+
+LayerDecl layer_declaration =
+    LAYER IDENTIFIER layer_body.b {: return new LayerDecl(IDENTIFIER, b); :};
+
+List layer_body =
+    LBRACE RBRACE {: return new List(); :}
+ |  LBRACE layer_body_declarations.l RBRACE {: return l; :};
+
+List layer_body_declarations =
+    layer_body_declaration.b {: return new List().add(b); :}
+ |  layer_body_declarations.l layer_body_declaration.b {: return l.add(b); :};
+
+BodyDecl layer_body_declaration =
+    partial_method_declaration.p {: return p; :}
+ |  activate_block.a {: return a; :}
+ |  deactivate_block.d {: return d; :}
+ |  field_declaration.f {: return f; :};
+
+MethodDecl partial_method_declaration =
+    method_declaration.m {: return m; :}
+ |  BEFORE method_declaration.m
+    {: return new BeforePartialMethodDecl(m.getModifiers(), m.getTypeAccess(), m.getID(), m.getParameters(), m.getExceptions(), new Opt(m.getBlock())); :}
+ |  AFTER method_declaration.m
+    {: return new AfterPartialMethodDecl(m.getModifiers(), m.getTypeAccess(), m.getID(), m.getParameters(), m.getExceptions(), new Opt(m.getBlock())); :};
+
+ActivateBlock activate_block =
+    ACTIVATE block.b {: return new ActivateBlock(b); :};
+
+DeactivateBlock deactivate_block =
+    DEACTIVATE block.b {: return new DeactivateBlock(b); :};
+
+/*
+ * Imperative event declaration
+ */
+BodyDecl class_member_declaration = event_declaration.e {: return e; :};
+
+MethodDecl event_declaration =
+    EVENT IDENTIFIER SEMICOLON
+    {: return new EventMethodDecl(
+          new Modifiers(new List().add(new Modifier("public"))),
+          new PrimitiveTypeAccess("void"),
+          IDENTIFIER,
+          new List(),
+          new List(),
+          new Opt(new Block(new List()))); :};

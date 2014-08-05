@@ -1,0 +1,135 @@
+/*
+ * Javanese check.
+ * Copyright (C) Tetsuo Kamina, 2012-2014
+ */
+
+aspect Check {
+
+  eq PointcutActionSpec.getParameter(int i).isMethodParameter() = false;
+  eq PointcutActionSpec.getParameter(int i).isConstructorParameter() = false;
+  eq PointcutActionSpec.getParameter(int i).isExceptionHandlerParameter() = false;
+  eq PointcutActionSpec.getParameter(int i).nameType() = NameType.TYPE_NAME;
+  eq MonitorDecl.getParameter(int i).isMethodParameter() = false;
+  eq MonitorDecl.getParameter(int i).isConstructorParameter() = false;
+  eq MonitorDecl.getParameter(int i).isExceptionHandlerParameter() = false;
+
+  eq PointcutSpec.getPointcutExpr().bindsInCurrentCflow(String name) = false;
+
+  eq SubscribeDecl.getPointcutExpr().bindsInCurrentCflow(String name) = false;
+  eq SubscribeDecl.getParameter(int i).isMethodParameter() = false;
+  eq SubscribeDecl.getParameter(int i).isConstructorParameter() = false;
+  eq SubscribeDecl.getParameter(int i).isExceptionHandlerParameter() = false;
+
+  eq MonitorDecl.getBodyDecl(int i).lookupVariable(String name) {
+    for (int j=0; j<getNumParameter(); j++) {
+      if (getParameter(j).name().equals(name)) {
+        return SimpleSet.emptySet.add(getParameter(j));
+      }
+    }
+    return SimpleSet.emptySet;
+  }
+
+  eq ContextDecl.getFluentSpec().lookupVariable(String name) = lookupVariable(name);
+
+  inh SimpleSet FluentSpec.lookupVariable(String name);
+  eq ActiveUntilSpec.getActive().lookupVariable(String name) = lookupVariable(name);
+  eq ActiveUntilSpec.getUntil().lookupVariable(String name) = lookupVariable(name);
+  inh SimpleSet ActionSpec.lookupVariable(String name);
+
+  inh SimpleSet SubscribeSpec.lookupVariable(String name);
+  eq SubscribeDecl.getPointcutExpr().lookupVariable(String name) {
+    return localLookupVariable(name);
+  }
+  eq SubscribeDecl.getParameter(int i).lookupVariable(String name) {
+    return localLookupVariable(name);
+  }
+  eq SubscribeDecl.getParameter(int i).isPointcutVariable() = true;
+  syn SimpleSet SubscribeDecl.localLookupVariable(String name) {
+    for (int i=0; i<getNumParameter(); i++) {
+      if (getParameter(i).name().equals(name)) {
+        return SimpleSet.emptySet.add(getParameter(i));
+      }
+    }
+    return SimpleSet.emptySet;
+  }
+
+  eq PointcutActionSpec.getPointcutExpr().bindsInCurrentCflow(String name) = 
+    getPointcutExpr().binds(name) > 0;
+
+  eq PointcutActionSpec.getParameter(int i).isPointcutVariable() = true;
+
+  eq PointcutActionSpec.getParameter(int i).lookupVariable(String name) {
+    return localLookupVariable(name);
+  }
+
+  syn SimpleSet PointcutActionSpec.localLookupVariable(String name) {
+    for (int i=0; i<getNumParameter(); i++) {
+      if (getParameter(i).name().equals(name)) {
+        return SimpleSet.emptySet.add(getParameter(i));
+      }
+    }
+    return SimpleSet.emptySet;
+  }
+
+  eq MonitorDecl.getBodyDecl(int j).lookupType(String name) {
+    for (int i=0; i<getNumParameter(); i++) {
+      if (((TypeAccess)getParameter(i).getTypeAccess()).getID().equals(name)){
+        TypeDecl tDecl = lookupType(packageName(), name);        
+        return SimpleSet.emptySet.add(tDecl);
+//        return SimpleSet.emptySet.add(getParameter(i).getTypeAccess());
+      }
+    }
+    return SimpleSet.emptySet;
+  }
+
+  eq MonitorDecl.getParameter(int i).lookupType(String name) {
+    return cu.lookupType(name);
+  }
+
+  eq MonitorDecl.getParameter(int i).lookupType(String packageName, String typeName) {
+    return cu.lookupType(packageName, typeName);
+  }
+
+  eq MonitorDecl.getBodyDecl(int i).lookupType(String packageName, String typeName) {
+    return cu.lookupType(packageName, typeName);
+  }
+
+  public TypeDecl MonitorDecl.lookupType(String packageName, String name) {
+    return cu.lookupType(packageName, name);
+  }
+
+  public boolean MonitorDecl.isNestedType() { return false; }
+
+  eq ActivateBlock.getBlock().reachable() = true;
+  eq DeactivateBlock.getBlock().reachable() = true;
+
+  refine Advice public void Proceed.typeCheck() {
+    // TODO
+  }
+
+  refine ErrorCheck public void ASTNode.collectErrors() {
+    if (!isProceed) ErrorCheck.ASTNode.collectErrors();
+  }
+
+  refine ErrorCheck protected void ASTNode.error(String s) {
+    ASTNode node = this;
+    CompilationUnit cu = null;
+    while(node != null && !(node instanceof CompilationUnit)) {
+      if (node instanceof MonitorDecl) {
+        cu = ((MonitorDecl)node).cu;
+        break;
+      }
+      node = node.getParent();
+    }
+    if (cu == null) cu = (CompilationUnit)node;
+    if(getNumChild() == 0 && getStart() != 0 && getEnd() != 0) {  
+      int line = getLine(getStart());
+      int column = getColumn(getStart());
+      int endLine = getLine(getEnd());
+      int endColumn = getColumn(getEnd());
+      cu.errors.add(new Problem(sourceFile(), s, line, column, endLine, endColumn, Problem.Severity.ERROR, Problem.Kind.SEMANTIC));
+    }
+    else
+      cu.errors.add(new Problem(sourceFile(), s, lineNumber(), Problem.Severity.ERROR, Problem.Kind.SEMANTIC));
+  }
+}

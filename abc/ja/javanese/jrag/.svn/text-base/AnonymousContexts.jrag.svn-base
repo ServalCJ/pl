@@ -1,0 +1,15 @@
+/*
+ * Preprocessing for anonymous contexts.
+ * Copyright (C) Tetsuo Kamina, 2013
+ */
+
+aspect AnonymousContexts {
+    public void Program.processAnonymousContexts() {
+        for (Iterator<PrePair> i = Program.PRETABLE.iterator(); i.hasNext(); ){
+            PrePair pair = i.next();
+            ContextDecl decl = pair.getExpr();
+            MonitorDecl monitor = pair.getType();
+            monitor.getBodyDecls().add(decl);
+        }
+    }
+}

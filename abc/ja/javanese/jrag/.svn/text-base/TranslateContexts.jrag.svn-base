@@ -1,0 +1,528 @@
+/*
+ * Translating context declarations to AspectJ code
+ * Copyright (C) Tetsuo Kamina, 2012-2014
+ */
+
+import java.util.Vector;
+import java.util.Iterator;
+
+aspect TranslateContexts {
+
+    private List<ParameterDeclaration> ContextDecl.getMonitorParams() {
+        return ((MonitorDecl)getParent().getParent()).getParameterList();
+    }
+
+    private HashMap<String,String> EventActionSpec.senderMap = new HashMap<String,String>();
+
+    private void EventActionSpec.bindEventSenders(List ids) {
+        for (int i=0; i<ids.getNumChildNoTransform(); i++) {
+            String id = ((EventID)ids.getChildNoTransform(i)).getID();
+            SimpleSet var = lookupVariable(id);
+            if (var.size() == 1) {
+	        ParameterDeclaration p =
+                    (ParameterDeclaration)var.iterator().next();
+                senderMap.put(id,((TypeAccess)p.getTypeAccess()).getID());
+            } else if (var.size() > 1) {
+                error("ambiguous event sender: " + id);
+            }
+        }
+    }
+
+    private String EventActionSpec.rewriteSenderToType(String id) {
+        String v = senderMap.get(id);
+        return v==null ? id : v;
+    }
+
+    public PointcutDecl EventActionSpec.toPointcutDecl(String id, String kind) {
+        List ids = getEventIDs();
+        bindEventSenders(ids);
+        int ct = ids.getNumChildNoTransform();
+        String idOrType = rewriteSenderToType(((EventID)ids.getChildNoTransform(0)).getID());
+        NamePattern pattern = new SimpleNamePattern(idOrType);
+        for (int i=1; i<ct; i++) {
+            idOrType = rewriteSenderToType(((EventID)ids.getChildNoTransform(i)).getID());
+            pattern = new DotNamePattern(pattern, new SimpleNamePattern(idOrType));
+        }
+        PointcutExpr pc = new CallPointcutExpr(
+                              new MethodPattern(
+                                  new List(),
+                                  new ExplicitTypeNamePattern(new PrimitiveTypeAccess("void")),
+                                  pattern,
+                                  new List(),
+                                  new List()));
+        List params = new List();
+        if (!senderMap.isEmpty()) {
+            Set<String> keys = senderMap.keySet();
+            for (Iterator<String> iter = keys.iterator(); iter.hasNext(); ) {
+                String key = iter.next();
+                String val = senderMap.get(key);
+                ParameterDeclaration param =
+                    new ParameterDeclaration(new Modifiers(), new ParseName(val), key);
+                params.add(param);
+                pc = new AndPointcutExpr(pc,
+                      new TargetPointcutExpr(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(key)))));
+                Access monitorAccess = new ParseName(getEnclosingMonitorName());
+                IfPointcutExpr ifPc = new IfPointcutExpr(new EQExpr(monitorAccess.qualifiesAccess(new ParseName("target$"+val)), new ParseName(key)));
+                ifPc.isGenerated = true;
+                pc = new AndPointcutExpr(pc, ifPc);
+            }
+        }
+        return new PointcutDecl(
+                       new Modifiers(),
+                       id + "$" + kind,
+                       params,
+                       pc);
+    }
+
+    private PointcutDecl ContextDecl.makeActionPointcutDecl(String id, String kind, PointcutActionSpec spec) {
+        PointcutExpr pc = spec.getPointcutExpr();
+        List<ParameterDeclaration> params = getMonitorParams();
+        for (int i=0; i<params.getNumChild(); i++) {
+            ParameterDeclaration p = params.getChildNoTransform(i);
+            spec.getParameters().add(p);
+
+            // see InferBinding.jrag
+            String binding = inferBinding(spec, p);
+
+            if (binding != null) {
+                if (binding.equals("target")) {
+                    pc = new AndPointcutExpr(
+                                 pc,
+                                 new TargetPointcutExpr(
+                                         new NameBindingPattern(
+                                                 new ExplicitTypeNamePattern(
+                                                         new ParseName(p.getID())))));
+                } else if (binding.equals("this")) {
+                    pc = new AndPointcutExpr(
+                                 pc,
+                                 new ThisPointcutExpr(
+                                         new NameBindingPattern(
+                                                 new ExplicitTypeNamePattern(
+                                                         new ParseName(p.getID())))));
+                } else if (binding.equals("args")) {
+                    pc = new AndPointcutExpr(
+                                 pc,
+                                 new ArgsPointcutExpr(
+                                         new List().add(new NameBindingPattern(
+                                                                new ExplicitTypeNamePattern(
+                                                                        new ParseName(p.getID()))))));
+                }
+            }
+        }
+        return new PointcutDecl(
+                       new Modifiers(),
+                       id + "$" + kind,
+                       spec.getParameters(),
+                       pc);
+    }
+
+    public void ContextDecl.aspectJBodyDecls(List<BodyDecl> retval) {
+        String id = getID();
+        FluentSpec fspec = getFluentSpec();
+        if (fspec instanceof ActiveUntilSpec) {
+            ActiveUntilSpec auSpec = (ActiveUntilSpec)fspec;
+            ActionSpec activeSpec = auSpec.getActive();
+            ActionSpec untilSpec = auSpec.getUntil();
+            PointcutDecl activeP = null;
+            PointcutDecl untilP = null;
+            AdviceDecl activeAdvice = null;
+            AdviceDecl untilAdvice = null;
+            // an advice to reset the magic number
+            AdviceDecl activeFinal = null;
+
+            if (activeSpec instanceof PointcutActionSpec) {
+                PointcutActionSpec paSpec = (PointcutActionSpec)activeSpec;
+                activeP = makeActionPointcutDecl(
+                                       id,
+                                       "Active",
+                                       paSpec);
+                List<BindingPattern> abPattern = new List<BindingPattern>();
+                for (int i=0; i<paSpec.getParameters().getNumChild(); i++) {
+                    ParameterDeclaration p = paSpec.getParameter(i);
+                    abPattern.add(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(p.name()))));
+                }
+
+                if (activeSpec instanceof AfterActionSpec) {
+                    activeAdvice = new AdviceDecl(
+                                     new Modifiers(),
+                                     new AfterSpec(paSpec.getParameters()),
+                                     new NamedPointcutExpr(
+                                             new PointcutAccess(id+"$Active"),
+                                             abPattern),
+                                     new List(),
+                                     new Block(trueAdviceStatements(paSpec)));
+                    activeFinal = new AdviceDecl(
+                                    new Modifiers(),
+                                    new AfterSpec(paSpec.getParameters().fullCopy()),
+                                    new NamedPointcutExpr(
+                                            new PointcutAccess(id+"$Active"),
+                                            abPattern.fullCopy()),
+                                    new List(),
+                                    new Block(activeFinalStatements()));
+                } else if (activeSpec instanceof BeforeActionSpec) {
+                    activeAdvice = new AdviceDecl(
+                                     new Modifiers(),
+                                     new BeforeSpec(paSpec.getParameters()),
+                                     new NamedPointcutExpr(
+                                             new PointcutAccess(id+"$Active"),
+                                             abPattern),
+                                     new List(),
+                                     new Block(trueAdviceStatements(paSpec)));
+                    activeFinal = new AdviceDecl(
+                                    new Modifiers(),
+                                    new BeforeSpec(paSpec.getParameters().fullCopy()),
+                                    new NamedPointcutExpr(
+                                            new PointcutAccess(id+"$Active"),
+                                            abPattern.fullCopy()),
+                                    new List(),
+                                    new Block(activeFinalStatements()));
+                }
+            } else {
+                // it should be an instance of EventActionSpec
+                EventActionSpec eaSpec = (EventActionSpec)activeSpec;
+                activeP = eaSpec.toPointcutDecl(id, "Active");
+                List params = activeP.getParameters().fullCopy();
+                List p = new List();
+                for (int i=0; i<params.getNumChildNoTransform(); i++) {
+                    ParameterDeclaration param = (ParameterDeclaration)params.getChildNoTransform(i).fullCopy();
+                    p.add(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(param.getID()))));
+                }
+                activeAdvice = new AdviceDecl(
+                                 new Modifiers(),
+                                 new AfterSpec(params),
+                                 new NamedPointcutExpr(
+                                         new PointcutAccess(id+"$Active"),p),
+                                 new List(),
+                                 new Block(trueAdviceStatements(eaSpec)));
+                activeFinal = new AdviceDecl(
+                                new Modifiers(),
+                                new AfterSpec(params),
+                                new NamedPointcutExpr(
+                                        new PointcutAccess(id+"$Active"),p),
+                                new List(),
+                                new Block(activeFinalStatements()));
+
+            }
+            if (untilSpec instanceof PointcutActionSpec) {
+                PointcutActionSpec puSpec = (PointcutActionSpec)untilSpec;
+                untilP = makeActionPointcutDecl(
+                                      id,
+                                      "Until",
+                                      puSpec);
+                List<BindingPattern> ubPattern = new List<BindingPattern>();
+                for (int i=0; i<puSpec.getParameters().getNumChild(); i++) {
+                    ParameterDeclaration p = puSpec.getParameter(i);
+                    ubPattern.add(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(p.name()))));
+                }
+                if (untilSpec instanceof AfterActionSpec) {
+                    untilAdvice = new AdviceDecl(
+                                    new Modifiers(),
+                                    new AfterSpec(puSpec.getParameters()),
+                                    new NamedPointcutExpr(
+                                            new PointcutAccess(id+"$Until"),
+                                            ubPattern),
+                                    new List(),
+                                    new Block(falseAdviceStatements(puSpec)));
+                } else if (untilSpec instanceof BeforeActionSpec) {
+                    untilAdvice = new AdviceDecl(
+                                    new Modifiers(),
+                                    new BeforeSpec(puSpec.getParameters()),
+                                    new NamedPointcutExpr(
+                                            new PointcutAccess(id+"$Until"),
+                                            ubPattern),
+                                    new List(),
+                                    new Block(falseAdviceStatements(puSpec)));
+                }
+            } else {
+                // it should be an instance of EventActionSpec
+                EventActionSpec euSpec = (EventActionSpec)untilSpec;
+                untilP = euSpec.toPointcutDecl(id, "Until");
+                List params = untilP.getParameters().fullCopy();
+                List p = new List();
+                for (int i=0; i<params.getNumChildNoTransform(); i++) {
+                    ParameterDeclaration pp = (ParameterDeclaration)params.getChildNoTransform(i).fullCopy();
+                    p.add(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(pp.getID()))));
+                }
+                untilAdvice = new AdviceDecl(
+                                 new Modifiers(),
+                                 new AfterSpec(params),
+                                 new NamedPointcutExpr(
+                                         new PointcutAccess(id+"$Until"),p),
+                                 new List(),
+                                 new Block(falseAdviceStatements(euSpec)));
+             }
+
+            if (activeP != null) retval.add(activeP);
+            if (untilP != null) retval.add(untilP);
+
+            // NOTE: the order of advices is important!
+            if (activeAdvice != null) retval.add(activeAdvice);
+            if (untilAdvice != null) retval.add(untilAdvice);
+            if (activeFinal != null) retval.add(activeFinal);
+
+        } else if (fspec instanceof PointcutSpec) {
+            PointcutSpec pSpec = (PointcutSpec)fspec;
+            PointcutExpr pcExpr = pSpec.getPointcutExpr();
+            if (pcExpr instanceof IfPointcutExpr) { 
+                IfPointcutExpr pcIf = (IfPointcutExpr)pcExpr;
+                MonitorDecl enclosing = (MonitorDecl)getParent().getParent();
+                List<ParameterDeclaration> params = enclosing.getParameters();
+                if (enclosing.usingContext(getID())) {
+                    for (int i=0; i<params.getNumChild(); i++) {
+                        ParameterDeclaration p = params.getChildNoTransform(i);
+                        String varName = p.getID();
+                        String typeName = ((TypeAccess)p.getTypeAccess()).getID();
+
+                        // I'm not sure why these statements are required.
+                        // Some magical side effects in JastAdd's rewriting
+                        // make these statements effective.
+                        // Using a LogNotExp in the IF pointcut does not pass
+                        // without the following statements.
+                        // See also the rewriting rule for PackageAccess in Rewriting.jrag.
+                        if (pcIf.getExpr() instanceof Unary) {
+                            Unary u = (Unary)pcIf.getExpr();
+                            ((Dot)u.getOperand()).getLeft();
+                        }
+
+                        Program.IFPCTABLE.add(new IfCondPair(
+                                                      enclosing,
+                                                      getID(),
+                                                      pcIf.getExpr()));
+                    }
+                }
+            } else if (pcExpr instanceof CflowPointcutExpr) {
+                CflowPointcutExpr pcCflow = (CflowPointcutExpr)pcExpr;
+                MonitorDecl enclosing = (MonitorDecl)getParent().getParent();
+                List<ParameterDeclaration> params = enclosing.getParameters();
+                if (enclosing.usingContext(getID())) {
+                    Iterator<String> iter;
+                    for (iter = enclosing.getTargetTypes().iterator();
+                         iter.hasNext(); ) {
+                        String typeName = iter.next();
+                        Program.CFLOWPCTABLE.add(new CflowPair(
+                                                         typeName,
+                                                         getID(),
+                                                         pcCflow.getPointcut()));
+                    }
+                }
+
+                // see CflowSpec.jrag
+                retval.add(enterCflowAdvice(enclosing, pcCflow));
+                retval.add(leaveCflowAdvice(enclosing, pcCflow));
+            }
+        }
+    }
+
+    private void ContextDecl.setMonitorInstanceInAdvice(List<Stmt> stmts, String verName, String typeName, MonitorDecl monitorDecl) {
+        Access mapGet = new ParseName("map").qualifiesAccess(new ParseName("get"));
+        List<Expr> args = new List<Expr>();
+        args.add(new ParseName(verName));
+        MethodAccess m = new MethodAccess("get", args);
+        ((AbstractDot)mapGet).replaceLast(m);
+        String monitorType = monitorDecl.getMonitorType(typeName).getID();
+        CastExpr castMapGet = new CastExpr(new ParseName(monitorType), mapGet);
+        VariableDecl monitor = new VariableDecl(
+                                       "monitor",
+                                       new List(),
+                                       new Opt());
+        monitor.setInit(castMapGet);
+        stmts.add(new VarDeclStmt(
+                          new Modifiers(),
+                          new ParseName(monitorType),
+                          new List().add(monitor)));
+    }
+
+    private List<Stmt> ContextDecl.ifMonitorNeqNull(List<Stmt> stmts) {
+        NEExpr cond = new NEExpr(
+                              new ParseName("monitor"),
+                              new NullLiteral("null"));
+        List<Stmt> ifStmts = new List<Stmt>();
+        stmts.add(new IfStmt(cond, new Block(ifStmts), new Opt()));
+        return ifStmts;
+    }
+
+    private void ContextDecl.setTargetInstanceInAdvice(List<Stmt> forStmts, String targetType) {
+        Access iterNext =
+            new ParseName("iter").qualifiesAccess(new MethodAccess(
+                                                          "next",
+                                                          new List()));
+            CastExpr castTarget = new CastExpr(
+                                          new TypeAccess(
+                                                  "",
+                                                  targetType),
+                                          iterNext);
+        VariableDecl rcv = new VariableDecl("rcv", new List(), new Opt());
+        rcv.setInit(castTarget);
+        forStmts.add(new VarDeclStmt(
+                             new Modifiers(),
+                             new ParseName(targetType),
+                             new List().add(rcv)));
+    }
+
+    private Stmt ContextDecl.makeSetActive(String name, String layerName) {
+        String resolveName = "resolve$" + layerName + "$" + getID();
+
+        // for statement "lm.setActive/setInactive(lm.resolve$$Layer$$Context$);"
+        List<Expr> args1 = new List<Expr>();
+        args1.add(new ParseName("lm").qualifiesAccess(new ParseName(resolveName)));
+        Access mRecv = new ParseName("lm").qualifiesAccess(new ParseName(name));
+        MethodAccess m1 = new MethodAccess(name+layerName, args1);
+        ((AbstractDot)mRecv).replaceLast(m1);
+        return new ExprStmt(mRecv);
+    }
+
+    private void ContextDecl.callSetActiveMethods1(List<Stmt> forStmts) {
+        Access receiver = new ParseName("rcv");
+        Access type = new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager"));
+        VariableDecl lm = new VariableDecl("lm", new List(), new Opt());
+        Access fAccess = receiver.qualifiesAccess(new ParseName("lm"));
+        lm.setInit(fAccess);
+        VarDeclStmt lmDecl = new VarDeclStmt(
+                                     new Modifiers(new List()),
+                                     type,
+                                     new List().add(lm));
+        forStmts.add(lmDecl);
+
+        Vector<ActivateDecl> activates = ((MonitorDecl)getParent().getParent()).getActivateDecls();
+        for (Iterator<ActivateDecl> it = activates.iterator();
+             it.hasNext(); ) {
+            ActivateDecl aDecl = it.next();
+            if (aDecl.usingContext(getID())) {
+                String layerName = aDecl.getID();
+                String resolveName = "resolve$" + layerName + "$" + getID();
+                Expr cond = new ParseName("lm").qualifiesAccess(
+                                                    new MethodAccess(
+                                                            "isActive"+layerName,
+                                                            new List().add(new ParseName("lm").qualifiesAccess(new ParseName(resolveName)))));
+                Stmt stmt1 = makeSetActive("setInactive", layerName);
+                Stmt stmt2 = makeSetActive("setActive", layerName);
+                forStmts.add(new IfStmt(cond, stmt1, stmt2));
+            }
+        }
+    }
+
+    private List<Stmt> ContextDecl.getAdviceStatements(boolean active, ActionSpec spec) {
+        List<Stmt> stmts = new List<Stmt>();
+        String verName = "_monitorkey";
+        String typeName = null;
+        if (spec instanceof PointcutActionSpec) {
+            List<ParameterDeclaration> params = ((PointcutActionSpec)spec).getParameters();
+            if (params.getNumChild() > 0) {
+                ParameterDeclaration p = params.getChildNoTransform(0);
+                verName = p.getID();
+                typeName = ((TypeAccess)p.getTypeAccess()).getID();
+            } //else {
+//                error("unexpected error");
+//            }
+        } else {
+            MonitorDecl m = (MonitorDecl)getParent().getParent();
+            List<ParameterDeclaration> params = m.getParameters();
+            if (params.getNumChild() > 0) {
+                ParameterDeclaration p = params.getChildNoTransform(0);
+                verName = p.getID();
+                typeName = ((TypeAccess)p.getTypeAccess()).getID();
+            }
+        }
+
+        MonitorDecl monitorDecl = (MonitorDecl)getParent().getParent();
+
+        // for statement "magicNumber = $currentMagicNumber$;"
+        if (active) {
+            stmts.add(new ExprStmt(
+                              new AssignSimpleExpr(
+                                      new ParseName("magicNumber"),
+                                      new IntegerLiteral(""+Program.currentMagicNumber))));
+        }
+
+        List<Stmt> ifStmts = null;
+
+        if (!(spec instanceof EventActionSpec)) {
+            // for statement "Monitor$Target monitor = (Monitor$Target)map.get(t)"
+            setMonitorInstanceInAdvice(stmts, verName, typeName, monitorDecl);
+            ifStmts = ifMonitorNeqNull(stmts);
+        }
+
+        for (Iterator<String> iter = monitorDecl.getTargetTypes().iterator();
+             iter.hasNext(); ) {
+            String targetType = iter.next();
+            if (spec instanceof EventActionSpec) {
+                ifStmts = forAllMonitors(stmts, targetType);
+            }
+            List<Stmt> forStmts = forEachMonitorsInAdvice(ifStmts, targetType);
+
+            // for statement "Target rcv = (Target)iter.next();"
+            setTargetInstanceInAdvice(forStmts, targetType);
+
+            // for statements:
+            //   "LayerManager lm = rcv.lm;"
+            //   "lm.setActive/setInactive(lm.resolve$$Layer$$Context$);"
+            //     (for each $Context$)
+            callSetActiveMethods1(forStmts);
+        }
+
+        if (active) {
+            return stmts;
+        } else {
+            List<Stmt> outerStmts = new List<Stmt>();
+            stmts.add(new ExprStmt(
+                              new AssignSimpleExpr(
+                                      new ParseName("magicNumber"),
+                                      new IntegerLiteral("0"))));
+            Expr cond = new NEExpr(
+                                new ParseName("magicNumber"),
+                                new IntegerLiteral(""+Program.currentMagicNumber));
+            outerStmts.add(new IfStmt(cond, new Block(stmts), new Opt()));
+            return outerStmts;
+        }
+    }
+
+    private List<Stmt> ContextDecl.trueAdviceStatements(ActionSpec spec) {
+        return getAdviceStatements(true, spec);
+    }
+
+    private List<Stmt> ContextDecl.falseAdviceStatements(ActionSpec spec) {
+        return getAdviceStatements(false, spec);
+    }
+
+    private List<Stmt> ContextDecl.activeFinalStatements() {
+        List<Stmt> stmts = new List<Stmt>();
+        stmts.add(new ExprStmt(
+                          new AssignSimpleExpr(
+                                  new ParseName("magicNumber"),
+                                  new IntegerLiteral("0"))));
+        return stmts;
+    }
+
+    private List<Stmt> ContextDecl.forAllMonitors(List<Stmt> stmts, String targetType) {
+        ParseName monitorTypeName = null;
+        MonitorDecl mDecl = getEnclosingMonitor();
+        if (mDecl != null && mDecl instanceof GlobalMonitorDecl) {
+            monitorTypeName = new ParseName("GlobalMonitor");
+        } else {
+            monitorTypeName = new ParseName("Monitor$"+targetType);
+        }
+
+        List<Stmt> retval = new List<Stmt>();
+        VariableDecl iterVar = new VariableDecl("iter2", new List(), new Opt());
+        iterVar.setInit(new ParseName("map").qualifiesAccess(new MethodAccess("values", new List())).qualifiesAccess(new MethodAccess("iterator", new List())));
+        Stmt initStmt = new VarDeclStmt(
+            new Modifiers(),
+            new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("Iterator")),
+            new List().add(iterVar));
+        stmts.add(new ForStmt(
+                      new List().add(initStmt),
+                      new Opt(new ParseName("iter2").qualifiesAccess(new MethodAccess("hasNext", new List()))),
+                      new List(),
+                      new Block(retval)));
+
+        VariableDecl monitor = new VariableDecl("monitor", new List(), new Opt());
+        monitor.setInit(new CastExpr(monitorTypeName,
+                                     new ParseName("iter2").qualifiesAccess(new MethodAccess("next", new List()))));
+        retval.add(new VarDeclStmt(
+                       new Modifiers(),
+                       monitorTypeName.fullCopy(),
+                       new List().add(monitor)));
+        return retval;
+    }
+
+}

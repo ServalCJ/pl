@@ -1,0 +1,1535 @@
+/*
+ * Javanese translation to AspectJ
+ * Copyright (C) Tetsuo Kamina, 2012-2014
+ */
+
+import java.util.Vector;
+import java.util.Iterator;
+import java.util.HashMap;
+import java.io.File;
+
+aspect Translate {
+
+  /*
+   * auxiliary definitions for monitor pointcuts
+   */
+  public Pointcut MonitorPointcutExpr.pointcut() {
+    return getPattern().monitorPointcut();
+  }
+
+  // find a monitor pointcut from a BindingPattern
+  syn Pointcut BindingPattern.monitorPointcut();
+  eq StarBindingPattern.monitorPointcut() = new TargetAny(pos());
+  eq DotDotBindingPattern.monitorPointcut() {
+    throw new InternalCompilerError(
+      "trying to create an aspectinfo pointcut for 'monitor(..)'");
+  }
+  eq NameBindingPattern.monitorPointcut() {
+    Pattern pat = getPattern();
+    if (pat.isVariable())
+        return new TargetVar(new Var(pat.variableName(), pos()), pos());
+    return new TargetType(AbcFactory.AbcType(pat.type().getSootType()),
+                          pos());
+  }
+
+  eq MonitorPointcutExpr.getPattern().nameType() =
+    NameType.AMBIGUOUS_NAME;
+  eq MonitorPointcutExpr.getPattern().lookupVariable(String name) =
+    lookupPointcutVariable(name);
+//  eq MonitorPointcutExpr.binds(String var) = getPattern().binds(var) ? 1 : 0;
+
+  protected CompilationUnit MonitorDecl.cu = null;
+  protected String MonitorDecl.packageName = "";
+  public void MonitorDecl.rememberCompilationUnit(CompilationUnit cu) {
+    packageName = packageName();
+    this.cu = cu;
+  }
+
+  /*
+   * The AspectJ's aspect declaration generation part:
+   */
+  public void Program.toAspectJ() {
+    Program.program = this;
+
+    List<CompilationUnit> units = getCompilationUnits();
+    List<CompilationUnit> tmp = new List<CompilationUnit>();
+    CompilationUnit layerManager = null;
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      if (cu.fromSource()) {
+        List<TypeDecl> decls = cu.getTypeDeclList();
+        List<TypeDecl> tmpds = new List<TypeDecl>();
+        List<TypeDecl> ads = new List<TypeDecl>();
+        Vector<Integer> nums = new Vector<Integer>();
+        for (int j=0; j<decls.getNumChild(); j++) {
+          TypeDecl decl = decls.getChildNoTransform(j);
+          if (decl instanceof MonitorDecl) {
+            MonitorDecl ddecl = (MonitorDecl)decl;
+            ddecl.rememberCompilationUnit(cu);
+            Program.monitorDecls.add(ddecl);
+            if (ddecl instanceof GlobalMonitorDecl) {
+              ((GlobalMonitorDecl)ddecl).insertSubscribeDecl(this);
+            }
+            tmpds.add(ddecl);
+            nums.add(new Integer(j));
+            AspectDecl ad = ddecl.toAspectJ();
+            ads.add(ad);
+            Vector<String> targetTypes = ddecl.getTargetTypes();
+//            ads.add(ddecl.generateMonitorClass(targetTypes, this));
+            ddecl.generateMonitorClass(targetTypes, this);
+            if (ddecl instanceof GlobalMonitorDecl) {
+              ClassDecl glm = ((GlobalMonitorDecl)ddecl).generateGlobalLayerManager(this);
+              ads.add(glm);
+            }
+
+            // layer manager should be generated just once
+            if (layerManager == null) {
+              layerManager = generateLayerManager();
+            }
+          }
+        }
+        for (int j=0; j<tmpds.getNumChild(); j++) {
+          decls.removeChild(nums.get(j).intValue()-j);
+        }
+        for (int j=0; j<ads.getNumChild(); j++) {
+          decls.add(ads.getChild(j));
+        }
+      }
+    }
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      if (cu.fromSource()) {
+        List<TypeDecl> decls = cu.getTypeDeclList();
+        for (int j=0; j<decls.getNumChild(); j++) {
+          TypeDecl decl = decls.getChildNoTransform(j);
+          if (decl instanceof ClassDecl) {
+            if (layerManager != null) ((ClassDecl)decl).translateLayers(this);
+            else ((ClassDecl)decl).removeLayers();
+          }
+        }
+      }
+    }
+    if (layerManager != null) addCompilationUnit(layerManager);
+  }
+
+  protected Vector<SubscribeDecl> MonitorDecl.rest = new Vector<SubscribeDecl>();
+
+  protected void MonitorDecl.prepareMonitorMap(List<BodyDecl> newBody) {
+    Access mapType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("HashMap"));
+    VariableDecl map = new VariableDecl("map", new List(), new Opt());
+    map.setInit(new ClassInstanceExpr((Access)mapType.fullCopy(), new List(), new Opt()));
+    FieldDecl mapDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), mapType, new List().add(map));
+    newBody.add(mapDecl);
+  }
+
+  protected void MonitorDecl.prepareMagicNumberDecl(List<BodyDecl> newBody) {
+    VariableDecl magic = new VariableDecl("magicNumber", new List(), new Opt());
+    magic.setInit(new IntegerLiteral("0"));
+    FieldDecl mnDecl = new FieldDecl(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(magic));
+    newBody.add(mnDecl);
+  }
+
+  public AspectDecl MonitorDecl.toAspectJ() {
+    List<BodyDecl> body = getBodyDecls();
+    List<BodyDecl> newBody = new List<BodyDecl>();
+    AspectDecl ad = new AspectDecl(new Modifiers(new List()), getID(), newBody, new Opt<Access>(new TypeAccess("java.lang", "Object")), new List<Access>(), new Opt<PerClause>());
+
+    // adding Hashmap for monitors
+    prepareMonitorMap(newBody);
+
+    // adding field to check double application of advice
+    prepareMagicNumberDecl(newBody);
+
+    String varName = null;
+    String typeName = null;
+    if (getParameters().getNumChild() > 0) {
+      ParameterDeclaration p = getParameters().getChildNoTransform(0);
+      varName = p.getID();
+      typeName = ((TypeAccess)p.getTypeAccess()).getID();
+    }
+
+    // generating monitor installation from perClause
+    Opt o = getPerClauseOpt();
+    if (o.getNumChild() > 0) {
+      PerClause perC = (PerClause)o.getChildNoTransform(0);
+      PointcutExpr pc = null;
+      if (perC instanceof PerTarget) {
+        PointcutExpr target = new TargetPointcutExpr(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName(varName))));
+        pc = new AndPointcutExpr(((PerTarget)perC).getPointcutExpr(), target);
+      }
+      List<Stmt> stmts = new List<Stmt>();
+
+      if (this instanceof GlobalMonitorDecl) {
+        // inserting "_monitorkey = t"
+        stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("_monitorkey"),
+                                                    new ParseName(varName))));
+      }
+
+      Access leftOp = new ParseName("map").qualifiesAccess(new ParseName("get"));
+      List<Expr> args = new List<Expr>();
+      Access arg = new ParseName(varName);
+      args.add(arg);
+      MethodAccess mAccess = new MethodAccess("get", args);
+      ((AbstractDot)leftOp).replaceLast(mAccess);
+      EQExpr cond = new EQExpr(leftOp, new NullLiteral("null"));
+      List<Stmt> ifstmts = new List<Stmt>();
+      Access withinIf = new ParseName("map").qualifiesAccess(new ParseName("put"));
+      List<Expr> args1 = new List<Expr>();
+      Access arg1 = new ParseName(varName);
+      Access arg2 = null;
+      if (this instanceof GlobalMonitorDecl) {
+        arg2 = new ClassInstanceExpr(new ParseName("GlobalMonitor"), new List(), new Opt());
+      } else {
+        arg2 = new ClassInstanceExpr(new ParseName("Monitor$" + typeName), new List(), new Opt());
+      }
+      args1.add(arg1).add(arg2);
+      MethodAccess mAccess1 = new MethodAccess("put", args1);
+      ((AbstractDot)withinIf).replaceLast(mAccess1);
+      ifstmts.add(new ExprStmt(withinIf));
+
+      stmts.add(new IfStmt(cond, new Block(ifstmts), new Opt()));
+      AdviceDecl monitorInst = new AdviceDecl(
+                                       new Modifiers(),
+                                       new AfterSpec(getParameters()),
+                                       pc,
+                                       new List(),
+                                       new Block(stmts));
+      newBody.add(monitorInst);
+
+    } 
+
+    for (int i=0; i<body.getNumChild(); i++) {
+      BodyDecl bodyD = body.getChildNoTransform(i);
+      if (bodyD instanceof MonitorBodyDecl) {
+        Program.currentMagicNumber++;
+        ((MonitorBodyDecl)bodyD).aspectJBodyDecls(newBody);
+      }
+    }
+
+    for (Iterator<SubscribeDecl> iter = rest.iterator(); iter.hasNext(); ) {
+      iter.next().aspectJBodyDecls(newBody);
+    }
+
+    if (this instanceof GlobalMonitorDecl) {
+      List<Stmt> stmts = new List();
+      stmts.add(
+                new IfStmt(
+                    new EQExpr(new ParseName("_glm"), new NullLiteral("null")),
+                    new ExprStmt(
+                        new AssignSimpleExpr(
+                            new ParseName("_glm"),
+                            new ClassInstanceExpr(
+                                new ParseName("GlobalLayerManager"),
+                                new List(),
+                                new Opt()
+                            )
+                        )
+                    ),
+                    new Opt()
+                )
+            );
+      AdviceDecl initGlm = new AdviceDecl(
+           new Modifiers(),
+           new BeforeSpec(new List()),
+           new ExecutionPointcutExpr(
+               new MethodPattern(
+                   new List(),
+                   new ExplicitTypeNamePattern(new PrimitiveTypeAccess("void")),
+                   new DotNamePattern(new SimpleNamePattern("*"),
+                                      new SimpleNamePattern("main")),
+                   new List().add(new WildcardFormalPattern()),
+                   new List())),
+           new List(),
+           new Block(stmts));
+      newBody.add(initGlm);
+      ad.global = true;
+    }
+
+    return ad;
+  }
+
+  public void MonitorBodyDecl.aspectJBodyDecls(List<BodyDecl> stmts) { }
+
+
+  /*
+   * The abstract LayerManager generation part:
+   */
+  private CompilationUnit Program.generateLayerManager() {
+    List<BodyDecl> bodies = new List<BodyDecl>();
+    ClassDecl cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("abstract")).add(new Modifier("public"))), "LayerManager", new Opt(), new List(), bodies);
+
+    // to obtain all monitors, it firstly gets all compilation units
+    List<CompilationUnit> units = getCompilationUnits();
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      List<TypeDecl> decls = cu.getTypeDeclList();
+      for (int j=0; j<decls.getNumChild(); j++) {
+        TypeDecl decl = decls.getChildNoTransform(j);
+        if (decl instanceof MonitorDecl) {
+          MonitorDecl ddecl = (MonitorDecl)decl;
+          Vector<String> layerNames = getAllLayerNames();
+//          ddecl.insertDummyActivateDecls(layerNames);
+
+          Vector<ActivateDecl> layers = ddecl.getActivateDecls();
+          for (Iterator<ActivateDecl> iter = layers.iterator(); iter.hasNext(); ) {
+            ActivateDecl aDecl = iter.next();
+            ContextCond cond = aDecl.getContextCond();
+            HashMap<String, Integer> map = new HashMap<String, Integer>();
+
+            // evaluating the context condition of the activate declaration,
+            // which results in a boolean array...
+            BooleanLiteral[] spec = aDecl.computeActive(cond, map);
+
+            // constructing the array initializer
+            List<Expr> arrayInit = new List<Expr>();
+            for (int k=0; k<spec.length; k++) {
+              arrayInit.add(spec[k]);
+            }
+
+            // public boolean[] arrayName = {false, true, ... }
+            Access type = new ArrayTypeAccess(new PrimitiveTypeAccess("boolean"));
+            VariableDecl arrayName = new VariableDecl(aDecl.getID(), new List(), new Opt());
+            arrayName.setInit(new ArrayInit(arrayInit));
+            FieldDecl arrayDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), type, new List().add(arrayName));
+            bodies.add(arrayDecl);
+
+            // generating "public int current = 0;"
+            VariableDecl current = new VariableDecl("current"+aDecl.getID(), new List(), new Opt());
+            current.setInit(new IntegerLiteral(0));
+            FieldDecl currentDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(current));
+            bodies.add(currentDecl);
+
+            List<Stmt> isActiveBody = new List<Stmt>();
+            MethodDecl isActive = new MethodDecl(
+                new Modifiers(new List().add(new Modifier("public"))),
+                new PrimitiveTypeAccess("boolean"),
+                "isActive"+aDecl.getID(),
+                new List<ParameterDeclaration>().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c")),
+                new List(),
+                new Opt(new Block(isActiveBody)));
+            isActiveBody.add(
+              new ReturnStmt(
+                new ConditionalExpr(
+                  new NEExpr(
+                    new ParExpr(
+                      new AndBitwiseExpr(
+                        new ParseName("current"+aDecl.getID()),
+                        new ParseName("c"))),
+                    new IntegerLiteral("0")),
+                  new BooleanLiteral("true"),
+                  new BooleanLiteral("false"))));
+            bodies.add(isActive);
+
+            // generating "abstract public void setActive(int c)"
+            List<ParameterDeclaration> setActiveParam =
+              new List<ParameterDeclaration>().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c"));
+            MethodDecl setActive = new MethodDecl(new Modifiers(new List().add(new Modifier("abstract")).add(new Modifier("public"))),
+                                            new PrimitiveTypeAccess("void"),
+                                            "setActive"+aDecl.getID(),
+                                            setActiveParam,
+                                            new List(),
+                                            new Opt());
+            bodies.add(setActive);
+
+            // generating "abstract public void setInactive(int c);"
+            List<ParameterDeclaration> setInactiveParam =
+            new List<ParameterDeclaration>().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c"));
+            MethodDecl setInactive = new MethodDecl(new Modifiers(new List().add(new Modifier("abstract")).add(new Modifier("public"))),
+                                            new PrimitiveTypeAccess("void"),
+                                            "setInactive"+aDecl.getID(),
+                                            setInactiveParam,
+                                            new List(),
+                                            new Opt());
+            bodies.add(setInactive);
+
+            // public int reslvName = value ..
+            for (String c : map.keySet()) {
+              VariableDecl reslvName = new VariableDecl("resolve$"+aDecl.getID()+"$"+c, new List(), new Opt());
+              reslvName.setInit(new IntegerLiteral(map.get(c)));
+              FieldDecl reslv = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(reslvName));
+              bodies.add(reslv);
+            }
+          }
+        }
+      }
+
+      // following menbers are declared only once
+      if (i==0) {
+
+        // generating "public Object[] layers = new Object[100];"
+        Access vectorType = new ArrayTypeAccess(new ParseName("Object"));
+        VariableDecl layers = new VariableDecl("layers", new List(), new Opt());
+        layers.setInit(new ArrayCreationExpr(new ParseName("Object").addArrayDims(new List().add(new Dims(new Opt(new IntegerLiteral("100"))))), new Opt()));
+        FieldDecl layersDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), vectorType, new List().add(layers));
+        bodies.add(layersDecl);
+
+        FieldDecl layersCt = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(new VariableDecl("ct", new List(), new Opt(new IntegerLiteral("0")))));
+        bodies.add(layersCt);
+
+        bodies.add(containsLayerDecl());
+        bodies.add(removeLayerDecl());
+        bodies.add(shiftLayersDecl());
+      }
+    }
+    CompilationUnit retval =  new CompilationUnit("javanese.generated",
+                                                  new List(),
+                                                  new List().add(cDecl));
+    retval.setFromSource(true);
+    retval.setRelativeName("javanese" + File.separatorChar + "generated" + File.separatorChar + "LayerManager.java");
+    return retval;
+  }
+
+  private List Program.initI(Expr e) {
+    VarDeclStmt i = new VarDeclStmt(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(new VariableDecl("i", new List(), new Opt(e))));
+    return new List().add(i);
+  }
+
+  private MethodDecl Program.containsLayerDecl() {
+    List<Stmt> stmts = new List<Stmt>();
+    List initStmts = initI(new IntegerLiteral("0"));
+    Expr lt = new LTExpr(new ParseName("i"), new ParseName("ct"));
+    Stmt forBody = new IfStmt(new EQExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("i"))), new ParseName("o")),
+                              new ReturnStmt(new Opt(new BooleanLiteral("true"))), new Opt());
+    Stmt forStmt = new ForStmt(initStmts, new Opt(lt), new List().add(new ExprStmt(new PostIncExpr(new ParseName("i")))), forBody);
+    stmts.add(forStmt);
+    stmts.add(new ReturnStmt(new BooleanLiteral("false")));
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))),
+                          new PrimitiveTypeAccess("boolean"),
+                          "containsLayer",
+                          new List().add(new ParameterDeclaration(new Modifiers(new List()), new ParseName("Object"), "o")),
+                          new List(),
+                          new Opt(new Block(stmts)));
+  }
+
+  private MethodDecl Program.removeLayerDecl() {
+    List<Stmt> stmts = new List<Stmt>();
+    List initStmts = initI(new IntegerLiteral("0"));
+    Expr lt = new LTExpr(new ParseName("i"), new ParseName("ct"));
+    Stmt forBody = new IfStmt(new EQExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("i"))), new ParseName("o")),
+                              new ExprStmt(new MethodAccess("shiftLayers", new List().add(new ParseName("i")))));
+    Stmt forStmt = new ForStmt(initStmts, new Opt(lt), new List().add(new ExprStmt(new PostIncExpr(new ParseName("i")))), forBody);
+    stmts.add(forStmt);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))),
+                          new PrimitiveTypeAccess("void"),
+                          "removeLayer",
+                          new List().add(new ParameterDeclaration(new Modifiers(new List()), new ParseName("Object"), "o")),
+                          new List(),
+                          new Opt(new Block(stmts)));
+  }
+
+  private MethodDecl Program.shiftLayersDecl() {
+    List<Stmt> stmts = new List<Stmt>();
+    List initStmts = initI(new ParseName("j"));
+    Expr lt = new LTExpr(new ParseName("i"), new SubExpr(new ParseName("ct"), new IntegerLiteral("1")));
+    Stmt forBody = new ExprStmt(new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("i"))),
+                                                     new ParseName("layers").qualifiesAccess(new ArrayAccess(new AddExpr(new ParseName("i"), new IntegerLiteral("1"))))));
+    Stmt forStmt = new ForStmt(initStmts, new Opt(lt), new List().add(new ExprStmt(new PostIncExpr(new ParseName("i")))), forBody);
+    stmts.add(forStmt);
+    stmts.add(new ExprStmt(new PostDecExpr(new ParseName("ct"))));
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("private"))),
+                          new PrimitiveTypeAccess("void"),
+                          "shiftLayers",
+                          new List().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "j")),
+                          new List(),
+                          new Opt(new Block(stmts)));
+  }
+
+  public void MonitorDecl.insertDummyActivateDecls(Vector<String> layerNames) {
+    for (Iterator<String> iter = layerNames.iterator(); iter.hasNext(); ) {
+      String layerName = iter.next();
+      Vector<ActivateDecl> aDecls = getActivateDecls();
+      boolean found = false;
+      for (Iterator<ActivateDecl> iter2 = aDecls.iterator(); iter2.hasNext();){
+        ActivateDecl aDecl = iter2.next();
+        if (layerName.equals(aDecl.getID())) found = true;
+      }
+      if (!found) {
+        ActivateDecl dummy = new ActivateDecl(
+                                   layerName,
+                                   new AtomCond("__Dummy"));
+        getBodyDecls().add(dummy);
+      }
+    }
+  }
+
+  /*
+   * generating monitor classes
+   */
+  public Vector<String> MonitorDecl.getTargetTypes() {
+    Vector<String> retval = new Vector<String>();
+    List<BodyDecl> decls = getBodyDecls();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl body = decls.getChildNoTransform(i);
+      if (body instanceof SubscribeDecl) {
+        SubscribeDecl sdecl = (SubscribeDecl)body;
+        List<ParameterDeclaration> params = sdecl.getParameterList();
+        for (int j=0; j<params.getNumChild(); j++) {
+          ParameterDeclaration p = params.getChildNoTransform(j);
+          String val = ((TypeAccess)p.getTypeAccess()).getPackage();
+          if (val.equals("")) {
+            val = ((TypeAccess)p.getTypeAccess()).getID();
+          } else {
+            val = val + "." + ((TypeAccess)p.getTypeAccess()).getID();
+          }
+          if (!retval.contains(val)) {
+            retval.add(val);
+          }
+        }
+      } else if (body instanceof SubscriberTypesDecl) {
+        SubscriberTypesDecl stDecl = (SubscriberTypesDecl)body;
+        List<SubscriberType> names = stDecl.getSubscriberTypes();
+        for (int j=0; j<names.getNumChild(); j++) {
+          SubscriberType name = names.getChildNoTransform(j);
+          retval.add(name.getID());
+        }
+      }
+    }
+    return retval;
+  }
+
+  public void MonitorDecl.generateMonitorClass(Vector<String> targetTypes, Program prog) {
+    List<BodyDecl> bodies = new List<BodyDecl>();
+    List<ParameterDeclaration> params = getParameters();
+    ClassDecl cDecl = null;
+    TypeAccess subscriberType = null;
+    String varName = null;
+    String typeName = null;
+    if (!(this instanceof GlobalMonitorDecl) && params.getNumChild() > 0) {
+      subscriberType = (TypeAccess)params.getChildNoTransform(0).getTypeAccess();
+      typeName = subscriberType.getID();
+      varName = params.getChildNoTransform(0).getID();
+      cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Monitor$"+subscriberType.getID(), new Opt(), new List(), bodies);
+    } else if (this instanceof GlobalMonitorDecl) {
+      cDecl = new ClassDecl(new Modifiers(), "GlobalMonitor", new Opt(), new List(), bodies);
+    }
+
+    for (Iterator<String> iter = targetTypes.iterator(); iter.hasNext(); ) {
+      String targetTypeOrg = iter.next();
+      String[] splitted = targetTypeOrg.split("\\.");
+      String targetType = splitted[splitted.length - 1];
+      Access targetTypeA = new ParseName(splitted[0]);
+      for (int i=1; i<splitted.length; i++) {
+          targetTypeA = targetTypeA.qualifiesAccess(new ParseName(splitted[i]));
+      }
+
+      // generating "public java.util.Vector subscribers = new java.util.Vector();"
+      Access vectorType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("Vector"));
+      VariableDecl subscribers = new VariableDecl("subscribers$"+targetType, new List(), new Opt());
+      subscribers.setInit(new ClassInstanceExpr((Access)vectorType.fullCopy(), new List(), new Opt()));
+      FieldDecl subscribersDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), vectorType, new List().add(subscribers));
+      bodies.add(subscribersDecl);
+      bodies.add(subscribe(targetTypeOrg));
+
+      VariableDecl target = new VariableDecl("target$"+targetType, new List(), new Opt());
+      target.setInit(new NullLiteral("null"));
+      FieldDecl targetDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("static")).add(new Modifier("public"))), targetTypeA, new List().add(target));
+      bodies.add(targetDecl);
+    }
+    String monitorName = "GlobalMonitor";
+
+    // inserting "dummyConstructor"
+    if (!(this instanceof GlobalMonitorDecl) && subscriberType != null) {
+      monitorName = "Monitor$" + subscriberType.getID();
+
+      List<Stmt> stmts = new List<Stmt>();
+      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName(monitorName).qualifiesAccess(new ParseName("target$"+subscriberType.getID())),
+                                                  new ParseName(varName))));
+
+      VariableDecl aspectVar = new VariableDecl("a", new List(), new Opt());
+      aspectVar.setInit(new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List())));
+      Stmt aspStmt = new VarDeclStmt(
+                             new Modifiers(),
+                             new ParseName(getID()),
+                             new List().add(aspectVar));
+      stmts.add(aspStmt);
+
+      VariableDecl retvalVar = new VariableDecl("retval", new List(), new Opt());
+      retvalVar.setInit(new ClassInstanceExpr(new ParseName("Monitor$" + typeName), new List(), new Opt()));
+      Stmt varDecl = new VarDeclStmt(
+                             new Modifiers(),
+                             new ParseName("Monitor$" + typeName),
+                             new List().add(retvalVar));
+      stmts.add(varDecl);
+
+      Access leftOp = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new ParseName("get"));
+      List<Expr> args = new List<Expr>().add(new ParseName(varName));
+      MethodAccess mAccess = new MethodAccess("get", args);
+      ((AbstractDot)leftOp).replaceLast(mAccess);
+      EQExpr cond = new EQExpr(leftOp, new NullLiteral("null"));
+      List<Stmt> ifstmts = new List<Stmt>();
+      Access withinIf = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new ParseName("put"));
+      List<Expr> args1 = new List<Expr>().add(new ParseName(varName)).add(new ParseName("retval"));
+      MethodAccess mAccess1 = new MethodAccess("put", args1);
+      ((AbstractDot)withinIf).replaceLast(mAccess1);
+      ifstmts.add(new ExprStmt(withinIf));
+      ifstmts.add(new ExprStmt(new AssignSimpleExpr(
+                                       new ParseName("retval").qualifiesAccess(new ParseName("__monitor")),
+                                       new ParseName(varName))));
+      stmts.add(new IfStmt(cond, new Block(ifstmts), new Opt()));
+
+      stmts.add(new ReturnStmt(new ParseName("retval")));
+
+      MethodDecl dummy = new MethodDecl(
+                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
+                                 new ParseName(monitorName),
+                                 "dummyConstructor",
+                                 params.fullCopy(),
+                                 new List(),
+                                 new Opt(new Block(stmts)));
+      bodies.add(dummy);
+    }
+
+    CompilationUnit cu = new CompilationUnit(getCompilationUnit().getPackageDecl(),
+                                             getCompilationUnit().getImportDecls().fullCopy(),
+                                             new List().add(cDecl));
+    cu.setFromSource(true);
+    cu.setRelativeName(getCompilationUnit().getPackageDecl().replaceAll("\\.", String.valueOf(File.separatorChar)) + File.separatorChar + monitorName + ".java");
+    prog.addCompilationUnit(cu);
+  }
+
+  private MethodDecl MonitorDecl.subscribe(String typeNameOrg) {
+    List<Stmt> stmts = new List<Stmt>();
+    String typeName = null;
+    String[] splitted = typeNameOrg.split("\\.");
+    typeName = splitted[splitted.length - 1];
+
+    Access subscribersAdd = new ParseName("subscribers$"+typeName).qualifiesAccess(new ParseName("add"));
+    List<Expr> args = new List<Expr>();
+    args.add(new ParseName("rcv"));
+    MethodAccess mAccess = new MethodAccess("add", args);
+    ((AbstractDot)subscribersAdd).replaceLast(mAccess);
+    stmts.add(new ExprStmt(subscribersAdd));
+
+    stmts.add(new ExprStmt(new AssignSimpleExpr(
+                                new ParseName("rcv").qualifiesAccess(new ParseName("__monitor")),
+                                new ParseName("__monitor"))));
+
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    Access formalType = new ParseName(splitted[0]);
+    for (int i=1; i<splitted.length; i++) {
+      formalType = formalType.qualifiesAccess(new ParseName(splitted[i]));
+    }
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), formalType, "rcv");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "subscribe", params, new List(), new Opt(new Block(stmts)));
+  }
+
+  // This method returns an array containing the mapping from
+  // context activation configurations to boolean values
+  // ("true" indicates that the layer is active).
+  public BooleanLiteral[] ActivateDecl.computeActive(ContextCond c, HashMap map) {
+    int ct = calcSize(c, map, 0);
+    Vector<Integer> values = computeActiveInternal(c, map, ct);
+    BooleanLiteral[] spec = new BooleanLiteral[1 << ct];
+    for (int i=0; i<spec.length; i++) {
+      if (values.contains(i)) {
+        spec[i] = new BooleanLiteral("true");
+      } else {
+        spec[i] = new BooleanLiteral("false");
+      }
+    }
+    return spec;
+  }
+
+  private int ActivateDecl.calcSize(ContextCond c, HashMap map, int ct) {
+    if (c instanceof AndCond) {
+      AndCond a = (AndCond)c;
+      ct = calcSize(a.getLeft(), map, ct);
+      ct = calcSize(a.getRight(), map, ct);
+    } else if (c instanceof OrCond) {
+      OrCond o = (OrCond)c;
+      ct = calcSize(o.getLeft(), map, ct);
+      ct = calcSize(o.getRight(), map, ct);
+    } else if (c instanceof NotCond) {
+      NotCond n = (NotCond)c;
+      ct = calcSize(n.getContextCond(), map, ct);
+    } else if (c instanceof AtomCond) {
+      AtomCond a = (AtomCond)c;
+      boolean flag = false;
+      String atomName = a.getName();
+      MonitorDecl m = a.getEnclosingMonitor();
+      if (m != null) {
+        List<BodyDecl> decls = m.getBodyDecls();
+        for (int i=0; i<decls.getNumChild(); i++) {
+          BodyDecl decl = decls.getChildNoTransform(i);
+          if (decl instanceof ActivateDecl) {
+            ActivateDecl aDecl = (ActivateDecl)decl;
+            if (aDecl.getID().equals(atomName)) {
+              flag = true;
+              ct = calcSize(aDecl.getContextCond(), map, ct);
+            }
+          }
+        }
+      }
+      if (!flag) {
+        map.put(a.getName(), 1<<ct);
+        ct++;
+      }
+    }
+    return ct;
+  }
+
+  private Vector<Integer> ActivateDecl.computeActiveInternal(ContextCond c, HashMap map, int ct) {
+    Vector<Integer> values = new Vector<Integer>();
+    if (c instanceof AndCond) {
+      AndCond a = (AndCond)c;
+      for (int l : computeActiveInternal(a.getLeft(), map, ct)) {
+        for (int r : computeActiveInternal(a.getRight(), map, ct)) {
+          values.add(l | r);
+        }
+      }
+    } else if (c instanceof OrCond) {
+      OrCond o = (OrCond)c;
+      for (int l : computeActiveInternal(o.getLeft(), map, ct)) {
+        for (int r : computeActiveInternal(o.getRight(), map, ct)) {
+          values.add(l);
+          values.add(r);
+          values.add(l | r);
+        }
+      }
+    } else if (c instanceof NotCond) {
+      NotCond n = (NotCond)c;
+      Vector<Integer> toNegate = computeActiveInternal(n.getContextCond(), map, ct);
+      int size = 1 << ct;
+      for (int j=0; j<size; j++) {
+        int canContain = 0;
+        for (int i : toNegate) {
+          if ((i | j) == j) continue;
+          else canContain++;
+        }
+        if (canContain == toNegate.size()) {
+          values.add(j);
+        }
+      }
+    } else if (c instanceof AtomCond) {
+      AtomCond a = (AtomCond)c;
+      boolean flag = false;
+      String atomName = a.getName();
+      MonitorDecl m = a.getEnclosingMonitor();
+      if (m != null) {
+        List<BodyDecl> decls = m.getBodyDecls();
+        for (int i=0; i<decls.getNumChild(); i++) {
+          BodyDecl decl = decls.getChildNoTransform(i);
+          if (decl instanceof ActivateDecl) {
+            ActivateDecl aDecl = (ActivateDecl)decl;
+            if (aDecl.getID().equals(atomName)) {
+              flag = true;
+              Vector<Integer> tmp = computeActiveInternal(aDecl.getContextCond(), map, ct);
+              for (Iterator<Integer> iter = tmp.iterator(); iter.hasNext(); )
+                values.add(iter.next());
+            }
+          }
+        }
+      }
+      if (!flag) {
+        values.add((Integer)map.get(atomName));
+      }
+    }
+    return values;
+  }
+
+  public ActivateBlock LayerDecl.getActivateBlock() {
+    ActivateBlock retval = null;
+    List<BodyDecl> bodies = getBodyDecls();
+    for (int i=0; i<bodies.getNumChild(); i++) {
+      BodyDecl bDecl = bodies.getChildNoTransform(i);
+      if (bDecl instanceof ActivateBlock) {
+        retval = (ActivateBlock)bDecl;
+      }
+    }
+    return retval;
+  }
+
+  public DeactivateBlock LayerDecl.getDeactivateBlock() {
+    DeactivateBlock retval = null;
+    List<BodyDecl> bodies = getBodyDecls();
+    for (int i=0; i<bodies.getNumChild(); i++) {
+      BodyDecl bDecl = bodies.getChildNoTransform(i);
+      if (bDecl instanceof DeactivateBlock) {
+        retval = (DeactivateBlock)bDecl;
+      }
+    }
+    return retval;
+  }
+
+  public boolean LayerDecl.hasActivateBlock() {
+    return getActivateBlock() != null ? true : false;
+  }
+
+  public boolean LayerDecl.hasDeactivateBlock() {
+    return getDeactivateBlock() != null ? true : false;
+  }
+    
+
+  /*
+   * If there are no context groups, it just remove all layer declarations
+   * from all the classes.
+   */
+  public void ClassDecl.removeLayers() {
+    List<BodyDecl> decls = getBodyDecls();
+    Vector<Integer> nums = new Vector<Integer>();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof LayerDecl) nums.add(new Integer(i));
+    }
+    for (int j=0; j<nums.size(); j++) {
+      decls.removeChild(nums.elementAt(j).intValue()-j);
+    }
+  }
+
+  /*
+   * Classes with layer declarations translation part, which translates
+   * layers into inner classes, generates instance variables managing the
+   * instance specific layer manager and layer instances.  It also
+   * generates an interface for layered methods and a mechanism for
+   * invocation of layered methods.
+   */
+  public void ClassDecl.translateLayers(Program prog) {
+    boolean layerManagerFlag = true;
+    List<BodyDecl> bodies = getBodyDecls();
+    Vector<BodyDecl> add = new Vector<BodyDecl>();
+    ClassDecl cLayerManager = null;
+
+    // inserting field declaration for monitor
+    VariableDecl monitor =
+      new VariableDecl("__monitor", new List(), new Opt());
+    monitor.setInit(new NullLiteral("null"));
+    FieldDecl monitorDecl =
+      new FieldDecl(new Modifiers(new List().add(new Modifier("public"))),
+                    new ParseName("Object"),
+                    new List().add(monitor));
+    add.add(monitorDecl);
+
+    // inserting counters for cflow specs
+    insertCflowCounters(add);
+
+    List<BodyDecl> lmBodies = new List<BodyDecl>();
+    InterfaceDecl layerInterface = null;
+
+    Vector<String> unusedLayers = prog.getAllReferredLayerNames();
+    Vector<String> thisClassLayers = new Vector<String>();
+    for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
+      BodyDecl bDecl = bodies.getChildNoTransform(i);
+      if (bDecl instanceof LayerDecl) {
+        LayerDecl l = (LayerDecl)bDecl;
+        if (unusedLayers.contains(l.getID()))
+          thisClassLayers.add(l.getID());
+      }
+    }
+
+    for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
+      BodyDecl bDecl = bodies.getChildNoTransform(i);
+      if (bDecl instanceof LayerDecl && unusedLayers.contains(((LayerDecl)bDecl).getID())) {
+        LayerDecl lDecl = (LayerDecl)bDecl;
+        unusedLayers.remove(lDecl.getID());
+
+        lmBodies.add(setActive(lDecl));
+        lmBodies.add(setInactive(lDecl));
+        ActivateBlock aBlock = lDecl.getActivateBlock();
+        DeactivateBlock daBlock = lDecl.getDeactivateBlock();
+        if (aBlock != null) {
+          MethodDecl activate = new MethodDecl(
+              new Modifiers(new List()),
+              new PrimitiveTypeAccess("void"),
+              "activate" + lDecl.getID(),
+              new List(),
+              new List(),
+              new Opt(aBlock.getBlock()));
+          lmBodies.add(activate);
+        }
+        if (daBlock != null) {
+          MethodDecl deactivate = new MethodDecl(
+              new Modifiers(new List()),
+              new PrimitiveTypeAccess("void"),
+              "deactivate" + lDecl.getID(),
+              new List(),
+              new List(),
+              new Opt(daBlock.getBlock()));
+          lmBodies.add(deactivate);
+        }
+
+        // Generating just once
+        if (layerManagerFlag) {
+          layerManagerFlag = false;
+
+          // variable managing the LayerManager
+          VariableDecl lm = new VariableDecl("lm", new List(), new Opt());
+          lm.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("LayerManager$"+getID()), new List(), new Opt())));
+          FieldDecl lmDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new ParseName("LayerManager$"+getID()), new List().add(lm));
+          add.add(lmDecl);
+
+          layerInterface = generateLayersInterface();
+          add.add(new MemberInterfaceDecl(layerInterface));
+
+          // modifying all layered methods
+          Vector<MethodItem> ms = getAllLayerMethodOriginals();
+          for (Iterator<MethodItem> iter = ms.iterator(); iter.hasNext(); ) {
+            MethodDecl m = iter.next().mDecl;
+            add.add(copyOriginalMethod(m));
+
+            List<Stmt> newStmts = new List<Stmt>();
+            List<Stmt> ifBlockStmts = new List<Stmt>();
+            Expr cond = new NEExpr(new ParseName("__monitor"), new NullLiteral("null"));
+            Vector<TypeAccess> params = getProgram().getMonitorParams();
+            for (Iterator<TypeAccess> itprm = params.iterator(); itprm.hasNext(); ){
+              TypeAccess mName = itprm.next();
+              cond = new AndLogicalExpr(cond, new InstanceOfExpr(new ParseName("__monitor"), mName));
+            }
+            newStmts.add(new IfStmt(cond, new Block(ifBlockStmts)));
+
+            for (Iterator<IfCondPair> it2 = Program.IFPCTABLE.iterator(); it2.hasNext(); ) {
+              IfCondPair pair = it2.next();
+              for (Iterator<String> itS = thisClassLayers.iterator(); itS.hasNext(); ) {
+                String layerName = itS.next();
+                String cName = pair.getContextName();
+                if (Program.isContextAffecting(cName, layerName)) {
+                  Access arg = new ParseName("lm").qualifiesAccess(new ParseName("resolve$" + layerName + "$"+cName));
+                  Access call = new ParseName("lm").qualifiesAccess(new MethodAccess("setActive"+layerName, new List().add(arg)));
+                  Stmt thenStmt = new ExprStmt(call);
+
+                  Expr cond2 = new NEExpr(new ParExpr(new AndBitwiseExpr(new ParseName("lm").qualifiesAccess(new ParseName("current"+layerName)), new ParseName("lm").qualifiesAccess(new ParseName("resolve$" + layerName + "$" + cName)))), new IntegerLiteral("0"));
+                  Access call2 = new ParseName("lm").qualifiesAccess(new MethodAccess("setInactive"+layerName, new List().add(arg.fullCopy())));
+                  Stmt elseStmt = new IfStmt(cond2, new ExprStmt(call2), new Opt());
+                  Stmt ifStmt = new IfStmt((Expr)pair.getExpr().fullCopy(), thenStmt, new Opt(elseStmt));
+                  ifBlockStmts.add(ifStmt);
+                }
+              }
+            }
+
+            for (Iterator<IfCondPair> it2 = Program.IFPCTABLE.iterator(); it2.hasNext(); ) {
+              IfCondPair pair = it2.next();
+              for (Iterator<String> itS = thisClassLayers.iterator(); itS.hasNext(); ) {
+                String layerName = itS.next();
+                String cName = pair.getContextName();
+                if (Program.isContextAffecting(cName, layerName)) {
+
+                  Expr cond3 = new AndLogicalExpr(new ParExpr(new EQExpr(new ParseName("lm").qualifiesAccess(new ParseName("current"+layerName)), new IntegerLiteral("0"))), new ParseName("lm").qualifiesAccess(new ParseName(layerName)).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("current"+layerName)))));
+                  Expr cond4 = new LogNotExpr(new ParseName("lm").qualifiesAccess(new MethodAccess("containsLayer", new List().add(new ParseName("instanceLayer$"+layerName)))));
+                  Stmt defaultActive = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName("instanceLayer$"+layerName)));
+                  Stmt incCt = new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ct"))));
+                  newStmts.add(new IfStmt(new AndLogicalExpr(cond3,cond4), new Block(new List().add(defaultActive).add(incCt))));
+
+                  CompilationUnit classUnit = getCompilationUnit();
+                  CompilationUnit monitorUnit = pair.getType().getCompilationUnit();
+                  classUnit.copyImportDeclsIfNotExists(monitorUnit);
+                }
+              }
+            }
+
+            for (Iterator<String> it3 = layerInterface.getMethodNames().iterator(); it3.hasNext(); ) {
+              String mName = it3.next();
+              String splitted = mName.split("_",0)[0];
+              if (splitted.equals("before") && mName.split("_",0)[1].equals(m.getID())) {
+                // generating "Iterator iter = lm.layers.iterator();"
+                // generating "lm.callNext$layerMethod(iter)"
+                insertCallNextCalls(newStmts, m, 1);
+              }
+            }
+
+            for (Iterator<String> it4 = layerInterface.getMethodNames().iterator(); it4.hasNext(); ) {
+              String mName = it4.next();
+              if (mName.equals(m.getID())) {
+                // generating "Iterator iter = lm.layers.iterator();"
+                // generating "lm.callNext$layerMethod(iter)"
+                insertCallNextCalls(newStmts, m, 2);
+              }
+            }
+
+            for (Iterator<String> it5 = layerInterface.getMethodNames().iterator(); it5.hasNext(); ) {
+              String mName = it5.next();
+              String splitted = mName.split("_",0)[0];
+              if (splitted.equals("after") && mName.split("_",0)[1].equals(m.getID())) {
+                // generating "Iterator iter = lm.layers.iterator();"
+                // generating "lm.callNext$layerMethod(iter)"
+                insertCallNextCalls(newStmts, m, 3);
+              }
+            }
+            if (!m.isLayeredMethodVoid()) {
+              newStmts.add(new ReturnStmt(new Opt(new ParseName("__retval"))));
+            }
+
+            m.getBlock().setStmtList(newStmts);
+          }
+        }
+
+        // Generating for each layer
+        add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
+
+        VariableDecl layer = new VariableDecl("instanceLayer$"+lDecl.getID(), new List(), new Opt());
+        layer.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt())));
+        FieldDecl layerDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("private"))), new ParseName("Layer$"+lDecl.getID()), new List().add(layer));
+        add.add(layerDecl);
+
+      }
+    }
+
+    if (!layerManagerFlag) {
+      for (Iterator<String> iter = unusedLayers.iterator(); iter.hasNext(); ) {
+        String unused = iter.next();
+        lmBodies.add(setActiveDummy(unused));
+        lmBodies.add(setInactiveDummy(unused));
+      }
+    }
+
+    //Now, finalizing the generation of the concrete LayerManager
+    if (lmBodies.getNumChild() > 0) {
+      // generating the template for the concrete LayerManager
+      cLayerManager = new ClassDecl(new Modifiers(new List()), "LayerManager$"+getID(), new Opt(new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager"))), new List(), lmBodies);
+
+/*
+      List<BodyDecl> lmBodies2 = cLayerManager.getBodyDecls();
+      Vector<MethodDecl> mdecls = collectCallNext();
+      for (Iterator<MethodDecl> iter = mdecls.iterator(); iter.hasNext(); ) {
+        lmBodies2.add(iter.next());
+      }
+*/
+      bodies.add(new MemberClassDecl(cLayerManager));
+    }
+
+    for (Iterator<BodyDecl> iter = add.iterator(); iter.hasNext(); ){
+      bodies.add(iter.next());
+    }
+  }
+
+  public Vector<String> InterfaceDecl.getMethodNames() {
+    Vector<String> retval = new Vector<String>();
+    List<BodyDecl> decls = getBodyDecls();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof MethodDecl) {
+        retval.add(((MethodDecl)decl).getID());
+      }
+    }
+    return retval;
+  }
+
+  private void ClassDecl.insertCallNextCalls(List<Stmt> newStmts, MethodDecl m, int num) {
+    VariableDecl iterV = new VariableDecl("iter"+num, new List(), new Opt());
+    iterV.setInit(new ParseName("lm").qualifiesAccess(new ParseName("ct")));
+//    iterV.setInit(new IntegerLiteral("0"));
+    VarDeclStmt iterD = new VarDeclStmt(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(iterV));
+    newStmts.add(iterD);
+
+    String mName = m.getID();
+    if (num == 1) { mName = "before_" + m.getID(); }
+    if (num == 3) { mName = "after_" + m.getID(); }
+
+    Expr cond = new NEExpr(new ParseName("iter"+num), new IntegerLiteral("0"));
+//    Expr cond = new LTExpr(new ParseName("iter"+num), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
+    List<Stmt> thenBodyList = new List<Stmt>();
+
+    if (!(m.isLayeredMethodVoid() || num == 1 || num == 3)) {
+      Stmt retDecl = new VariableDeclaration(
+                           new Modifiers(new List()),
+                           (Access)m.getTypeAccess().fullCopy(),
+                           "__retval",
+                           new Opt());
+      newStmts.add(retDecl);
+    }
+
+    Stmt thenBody = new Block(thenBodyList);
+    Stmt lDecl = new VariableDeclaration(
+                          new Modifiers(new List()),
+                          new ParseName("Layers$"+getID()),
+                          "__l",
+                          new Opt(new CastExpr(
+                            new ParseName("Layers$"+getID()),
+                            new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter"+num)))))));
+    thenBodyList.add(lDecl);
+    Expr lCall = new ParseName("__l").qualifiesAccess(new MethodAccess(mName, ((List)m.getVars().fullCopy()).add(new ParseName("iter"+num))));
+    Stmt lCallStmt = null;
+    if (m.isLayeredMethodVoid() || num == 1 || num == 3) {
+      lCallStmt = new ExprStmt(lCall);
+    } else {
+      lCallStmt = new ExprStmt(new AssignSimpleExpr(new ParseName("__retval"), lCall));
+    }
+    thenBodyList.add(lCallStmt);
+
+    Stmt elseBody = null;
+    if (num == 2) {
+      lCall = new MethodAccess(m.getID()+"$original", (List)m.getVars().fullCopy());
+      if (m.isLayeredMethodVoid()) {
+        elseBody = new ExprStmt(lCall);
+      } else {
+        elseBody = new ExprStmt(new AssignSimpleExpr(new ParseName("__retval"),lCall));
+      }
+    } else {
+      elseBody = new Block(new List());
+    }
+
+    newStmts.add(new IfStmt(cond, thenBody, elseBody));
+/*
+    Access callNext = new ParseName("lm").qualifiesAccess(new ParseName(mName));
+    MethodAccess callNextM = new MethodAccess(mName, m.getVars().add(new ParseName("iter"+num)));
+    ((AbstractDot)callNext).replaceLast(callNextM);
+
+    Stmt retStmt = null;
+    if (m.isLayeredMethodVoid() || num == 1 || num == 3) {
+      retStmt = new ExprStmt(callNext);
+    } else {
+      retStmt = new VariableDeclaration(
+                      new Modifiers(new List()),
+                      (Access)m.getTypeAccess().fullCopy(),
+                      "__retval",
+                      new Opt(callNext));
+    }
+    newStmts.add(retStmt);
+*/
+  }
+
+  public boolean MethodDecl.isLayeredMethodVoid() {
+    Access typeAccess = getTypeAccess();
+    return typeAccess instanceof PrimitiveTypeAccess &&
+             ((PrimitiveTypeAccess)typeAccess).getID().equals("void")
+           ? true
+           : false;
+  }
+
+  public List MethodDecl.getVars() {
+    List<ParameterDeclaration> params = getParameters();
+    List<ParseName> names = new List<ParseName>();
+    for (int i=0; i<params.getNumChild(); i++) {
+      ParameterDeclaration p = params.getChildNoTransform(i);
+      names.add(new ParseName(p.getID()));
+    }
+    return names;
+  }
+
+  public List MethodDecl.getVars1() {
+    List<ParameterDeclaration> params = getParameters();
+    List<ParseName> names = new List<ParseName>();
+    for (int i=0; i<params.getNumChild() -1; i++) {
+      ParameterDeclaration p = params.getChildNoTransform(i);
+      names.add(new ParseName(p.getID()));
+    }
+    return names;
+  }
+
+  private Vector<MethodDecl> ClassDecl.collectCallNext() {
+    Vector<MethodItem> ms = getAllLayerMethods();
+    Vector<MethodDecl> retval = new Vector<MethodDecl>();
+    for (Iterator<MethodItem> i = ms.iterator(); i.hasNext(); ) {
+      MethodDecl m = i.next().mDecl;
+      String name = "callNext$"+m.getID();
+      if (m instanceof BeforePartialMethodDecl) {
+        name = "before$"+m.getID().substring(7);
+      } else if (m instanceof AfterPartialMethodDecl) {
+        name = "after$"+m.getID().substring(6);
+      }
+
+      // To deal with automatically generated before/after methods,
+      // which are not type of BeforePartialMethodDecl/AfterPartialMethodDecl
+      String splitted = m.getID().split("_",0)[0];
+      if (!((splitted.equals("before") && !(m instanceof BeforePartialMethodDecl)) ||
+            (splitted.equals("after") && !(m instanceof AfterPartialMethodDecl)))) {
+        retval.add(new MethodDecl(m.getModifiers(), m.getTypeAccess(), name, m.getParameters().fullCopy(), m.getExceptions(), new Opt(callNextBody(m))));
+      }
+    }
+    return retval;
+  }
+
+  private Block ClassDecl.callNextBody(MethodDecl m) {
+    String name = m.getID();
+    Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
+//    Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
+
+    List<Stmt> tstmts = new List<Stmt>();
+    VariableDecl l = new VariableDecl("l", new List(), new Opt());
+    Expr cast = new CastExpr(new ParseName("Layers$"+getID()),
+                             new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter")))));
+    l.setInit(cast);
+    VarDeclStmt lDecl = new VarDeclStmt(new Modifiers(new List()), new ParseName("Layers$"+getID()), new List().add(l));
+    tstmts.add(lDecl);
+
+    List vars = new List();
+    int i=0;
+    for (; i<m.getParameters().fullCopy().getNumChild()-1; i++) {
+      vars.add(new ParseName(((ParameterDeclaration)m.getParameters().getChildNoTransform(i)).getID()));
+    }
+    vars.add((Expr)m.getVars().getChildNoTransform(i));
+    Access invk = new ParseName("l").qualifiesAccess(new MethodAccess(name, vars));
+    Stmt retStmt = null;
+    if (m.isLayeredMethodVoid() || (m instanceof BeforePartialMethodDecl)
+         || (m instanceof AfterPartialMethodDecl)) {
+      retStmt = new ExprStmt(invk);
+    } else {
+      retStmt = new ReturnStmt(new Opt(invk));
+    }
+    tstmts.add(retStmt);
+
+    Block tBlock = new Block(tstmts);
+
+    Stmt ifStmt = new IfStmt(cond, tBlock);
+    if (!(m instanceof BeforePartialMethodDecl) &&
+          !(m instanceof AfterPartialMethodDecl) &&
+          !((m.getID().split("_",0).length > 0) && (m.getID().split("_",0)[0].equals("before"))) &&
+          !((m.getID().split("_",0).length > 0) && (m.getID().split("_",0)[0].equals("after")))) {
+      List<Stmt> estmts= new List<Stmt>();
+      List<Expr> args = m.getVars1();
+
+      String methName = name;
+      // dealing with automatically generated "before_xxx/after_xxx" methods,
+      // whose types are not BeforePartialMethod/AfterPartialMethod
+      methName = methName+"$original";
+
+      // TODO: calculating args list
+      Access oinvk = new MethodAccess(methName, args);
+      Stmt oretStmt = null;
+      if (m.isLayeredMethodVoid()) {
+        oretStmt = new ExprStmt(oinvk);
+      } else {
+        oretStmt = new ReturnStmt(new Opt(oinvk));
+      }
+      estmts.add(oretStmt);
+      Block eBlock = new Block(estmts);
+      ifStmt = new IfStmt(cond, tBlock, eBlock);
+    }
+    return new Block(new List().add(ifStmt));
+  }
+
+  private MethodDecl ClassDecl.setActive(LayerDecl lDecl) {
+    String layerName = lDecl.getID();
+    List<Stmt> stmts = new List<Stmt>();
+
+    Access dest = new ParseName("current"+layerName);
+    Expr src = new OrBitwiseExpr(new ParseName("current"+layerName), new ParseName("c"));
+    Expr assign = new AssignSimpleExpr(dest, src);
+    stmts.add(new ExprStmt(assign));
+
+    List<Stmt> layersAddStmts = new List<Stmt>();
+    Expr cond = new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName)));
+    Access arg = new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName));
+    Access contains = new MethodAccess("containsLayer", new List().add(arg));
+    Expr cond2 = new LogNotExpr(contains);
+    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
+    layersAddStmts.add(new ExprStmt(layersAdd));
+    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
+    if(lDecl.hasActivateBlock()) {
+      layersAddStmts.add(new ExprStmt(new MethodAccess("activate" + layerName, new List())));
+    }
+    IfStmt ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
+    stmts.add(ifStmt);
+
+    layersAddStmts = new List<Stmt>();
+    cond = new LogNotExpr(new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName))));
+    Expr layersRem = new MethodAccess("removeLayer", new List().add(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName))));
+    layersAddStmts.add(new ExprStmt(layersRem));
+    if (lDecl.hasDeactivateBlock()) {
+      layersAddStmts.add(new ExprStmt(new MethodAccess("deactivate"+layerName, new List())));
+    }
+    ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
+    stmts.add(ifStmt);
+
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setActive"+layerName, params, new List(), new Opt(new Block(stmts)));
+  }
+
+  private MethodDecl ClassDecl.setInactive(LayerDecl lDecl) {
+    String layerName = lDecl.getID();
+    List<Stmt> stmts = new List<Stmt>();
+
+    Access dest = new ParseName("current"+layerName);
+    Expr src = new XorBitwiseExpr(new ParseName("current"+layerName), new ParseName("c"));
+    Expr assign = new AssignSimpleExpr(dest, src);
+    stmts.add(new ExprStmt(assign));
+
+    List<Stmt> layersAddStmts = new List<Stmt>();
+    Expr cond = new LogNotExpr(new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName))));
+    Access layersRem = new MethodAccess("removeLayer", new List().add(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName))));
+     layersAddStmts.add(new ExprStmt(layersRem));
+    if (lDecl.hasDeactivateBlock()) {
+      layersAddStmts.add(new ExprStmt(new MethodAccess("deactivate"+layerName, new List())));
+    }
+    IfStmt ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
+    stmts.add(ifStmt);
+
+    layersAddStmts = new List<Stmt>();
+    cond = new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName)));
+    Access arg = new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName));
+    Expr contains = new MethodAccess("containsLayer", new List().add(arg));
+    Expr cond2 = new LogNotExpr(contains);
+    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
+    layersAddStmts.add(new ExprStmt(layersAdd));
+    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
+    if(lDecl.hasActivateBlock()) {
+      layersAddStmts.add(new ExprStmt(new MethodAccess("activate" + layerName, new List())));
+    }
+    ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
+    stmts.add(ifStmt);
+
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setInactive"+layerName, params, new List(), new Opt(new Block(stmts)));
+  }
+
+  private MethodDecl ClassDecl.setActiveDummy(String lName) {
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setActive"+lName, params, new List(), new Opt(new Block(new List())));
+  }
+
+  private MethodDecl ClassDecl.setInactiveDummy(String lName) {
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setInactive"+lName, params, new List(), new Opt(new Block(new List())));
+  }
+
+  private MethodDecl ClassDecl.copyOriginalMethod(MethodDecl m) {
+    return new MethodDecl(m.getModifiers(), m.getTypeAccess(), m.getID()+"$original", m.getParameters(), m.getExceptions(), new Opt(m.getBlock().fullCopy()));
+  }
+
+  private void ClassDecl.insertMissingAroundMethods(LayerDecl ll) {
+    List<BodyDecl> decls = ll.getBodyDecls();
+    Vector<String> names = new Vector<String>();
+    Vector<MethodDecl> tmp = new Vector<MethodDecl>();
+    Vector<MethodDecl> todo = new Vector<MethodDecl>();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof BeforePartialMethodDecl ||
+           decl instanceof AfterPartialMethodDecl) {
+        String name = ((MethodDecl)decl).getID();
+        if (!names.contains(name)) {
+          names.add(name);
+          tmp.add((MethodDecl)decl);
+        }
+      }
+    }
+    for (int i=0; i<names.size(); i++) {
+      String name = names.elementAt(i);
+      boolean found = false;
+      for (int j=0; j<decls.getNumChild(); j++) {
+        BodyDecl decl = decls.getChildNoTransform(j);
+        if (!(decl instanceof BeforePartialMethodDecl) &&
+             !(decl instanceof AfterPartialMethodDecl)) {
+          if (!(decl instanceof ActivateBlock) &&
+              !(decl instanceof DeactivateBlock)) {
+            if (((MethodDecl)decl).getID().equals(name)) { found = true; }
+          }
+        }
+      }
+      if (!found) { todo.add(tmp.elementAt(i)); }
+    }
+    for (Iterator<MethodDecl> iter = todo.iterator(); iter.hasNext(); ) {
+      MethodDecl m = iter.next();
+      String name = m.getID();
+      List args = new List();
+      List<ParameterDeclaration> params = m.getParameters();
+      for (int i=0; i<params.getNumChild(); i++) {
+        ParameterDeclaration param = params.getChildNoTransform(i);
+        args.add(new ParseName(param.getID()));
+      }
+      String callName = null;
+      String splitted = name.split("_",0)[0];
+      if (splitted.equals("before")) {
+        callName = "before$" + name.split("_",0)[1];
+      } else if (splitted.equals("after")) {
+        callName = "after$" + name.split("_",0)[1];
+      } else {
+        callName = name;
+      }
+      Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
+//      Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
+      List<Stmt> tstmts = new List<Stmt>();
+      VariableDecl l = new VariableDecl("l", new List(), new Opt());
+      Expr cast = new CastExpr(new ParseName("Layers$"+getID()),
+                             new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter")))));
+      l.setInit(cast);
+      VarDeclStmt lDecl = new VarDeclStmt(new Modifiers(new List()), new ParseName("Layers$"+getID()), new List().add(l));
+      tstmts.add(lDecl);
+      Stmt nextCall = new ExprStmt(new ParseName("l").qualifiesAccess(new MethodAccess(callName, ((List)args.fullCopy()).add(new ParseName("iter")))));
+      tstmts.add(nextCall);
+
+      Stmt estmt = new ExprStmt(new MethodAccess(name+"$original", args));
+      Block block = new Block(new List().add(new IfStmt(cond, new Block(tstmts), estmt)));
+      MethodDecl newMethod = new MethodDecl((Modifiers)m.getModifiers().fullCopy(),
+          (Access)m.getTypeAccess().fullCopy(),
+          m.getID(),
+          (List)m.getParameters().fullCopy(),
+          (List)m.getExceptions().fullCopy(),
+          new Opt(block));
+      decls.add(newMethod);
+    }
+  }
+
+  private ClassDecl ClassDecl.generateLayerInnerClass(LayerDecl lDecl, InterfaceDecl layerInterface) {
+    insertMissingAroundMethods(lDecl);
+    List<BodyDecl> lbodies = lDecl.getBodyDecls();
+
+    for (int i=0; i<lbodies.getNumChild(); i++) {
+      BodyDecl lbDecl = lbodies.getChildNoTransform(i);
+      if (lbDecl instanceof MethodDecl) {
+        MethodDecl mDecl = (MethodDecl)lbDecl;
+        List args = new List();
+        List<ParameterDeclaration> params = mDecl.getParameters();
+        for (int j=0; j<params.getNumChild(); j++) {
+          ParameterDeclaration param = params.getChildNoTransform(j);
+          args.add(new ParseName(param.getID()));
+        }
+        String origName = mDecl.getID();
+        if (!mDecl.getModifiers().isPrivate())
+          mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+        if (mDecl instanceof BeforePartialMethodDecl) {
+          mDecl.setID("before_"+origName);
+          mDecl.getBlock().getStmts().add(callNextBody(mDecl.fullCopy()));
+        } else if (mDecl instanceof AfterPartialMethodDecl) {
+          mDecl.setID("after_"+origName);
+          mDecl.getBlock().getStmts().add(callNextBody(mDecl.fullCopy()));
+        }
+      }
+    }
+
+    // searching unprovided partial methods..
+    List<BodyDecl> inBodies = layerInterface.getBodyDecls();
+    Vector<MethodDecl> unprovided = new Vector<MethodDecl>();
+    for (int i=0; i<inBodies.getNumChild(); i++) {
+      BodyDecl inBody = inBodies.getChildNoTransform(i);
+      if (inBody instanceof MethodDecl) {
+        MethodDecl m = (MethodDecl)inBody;
+        boolean found = false;
+        for (int j=0; j<lbodies.getNumChild(); j++) {
+          BodyDecl lBody = lbodies.getChildNoTransform(j);
+          if (lBody instanceof MethodDecl &&
+              m.getID().equals(((MethodDecl)lBody).getID())) {
+            found = true;
+          }
+        }
+        if (!found) { unprovided.add(m); }
+      }
+    }
+
+    for (Iterator<MethodDecl> iter = unprovided.iterator(); iter.hasNext(); ) {
+      MethodDecl m = iter.next();
+      Block retBlock = callNextBody(m);
+
+      MethodDecl mAdded = new MethodDecl(
+                                (Modifiers)m.getModifiers().fullCopy(),
+                                (Access)m.getTypeAccess().fullCopy(),
+                                m.getID(),
+                                (List)m.getParameters().fullCopy(),
+                                (List)m.getExceptions().fullCopy(),
+                                new Opt(retBlock)
+                          );
+      lbodies.add(mAdded);
+    }
+
+    return new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Layer$"+lDecl.getID(), new Opt(), new List().add(new ParseName("Layers$"+getID())), lbodies);
+  }
+
+  private InterfaceDecl ClassDecl.generateLayersInterface() {
+    Vector<MethodItem> methods = getAllLayerMethods();
+    List<BodyDecl> methodDecls = new List<BodyDecl>();
+    Vector<String> arounds = new Vector<String>();
+    for (Iterator<MethodItem> iter = methods.iterator(); iter.hasNext(); ) {
+      MethodItem m = iter.next();
+      String methodName = m.mDecl.getID();
+      if (!(m.mDecl instanceof BeforePartialMethodDecl) &&
+            !(m.mDecl instanceof AfterPartialMethodDecl)) {
+        MethodDecl mDecl = new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), m.mDecl.getTypeAccess(), methodName, m.mDecl.getParameters().fullCopy(), m.mDecl.getExceptions(), new Opt());
+        mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+        methodDecls.add(mDecl);
+        arounds.add(methodName);
+      }
+    }
+    for (Iterator<MethodItem> iter = methods.iterator(); iter.hasNext(); ) {
+      MethodItem m = iter.next();
+      String methodName = m.mDecl.getID();
+      boolean setAround = false;
+      if (m.mDecl instanceof BeforePartialMethodDecl) {
+        methodName = "before_" + methodName;
+        if (!arounds.contains(m.mDecl.getID())) {
+          arounds.add(m.mDecl.getID());
+          setAround = true;
+        }
+      } else if (m.mDecl instanceof AfterPartialMethodDecl) {
+        methodName = "after_" + methodName;
+        if (!arounds.contains(m.mDecl.getID())) {
+          arounds.add(m.mDecl.getID());
+          setAround = true;
+        }
+      }
+      if (!methodName.equals(m.mDecl.getID())) {
+        MethodDecl mDecl = new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), m.mDecl.getTypeAccess(), methodName, m.mDecl.getParameters().fullCopy(), m.mDecl.getExceptions(), new Opt());
+        mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+        methodDecls.add(mDecl);
+      }
+      if (setAround) {
+        MethodDecl mDecl = new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), m.mDecl.getTypeAccess(), m.mDecl.getID(), m.mDecl.getParameters().fullCopy(), m.mDecl.getExceptions(), new Opt());
+        mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+        methodDecls.add(mDecl);
+      }
+    }
+    return new InterfaceDecl(new Modifiers(new List()), "Layers$"+getID(), new List(), methodDecls);
+  }
+
+  private Vector<MethodItem> ClassDecl.getAllLayerMethods() {
+    Vector<String> referred = Program.program.getAllReferredLayerNames();
+    Vector<MethodItem> retval = new Vector<MethodItem>();
+    List<BodyDecl> bodies = getBodyDecls();
+    for (int i=0; i<bodies.getNumChild(); i++) {
+      BodyDecl bDecl = bodies.getChildNoTransform(i);
+      if (bDecl instanceof LayerDecl && referred.contains(((LayerDecl)bDecl).getID())) {
+        List<BodyDecl> lbodies = ((LayerDecl)bDecl).getBodyDecls();
+        for (int j=0; j<lbodies.getNumChild(); j++) {
+          BodyDecl lbDecl = lbodies.getChildNoTransform(j);
+          if ((lbDecl instanceof MethodDecl) &&
+               ((MethodDecl)lbDecl).isPublic()) {
+            MethodDecl m = (MethodDecl)lbDecl;
+            MethodItem mItem = new MethodItem(m);
+            if (!retval.contains(mItem)) {
+              retval.add(mItem);
+            }
+          }
+        }
+      }
+    }
+    return retval;
+  }
+
+  private Vector<MethodItem> ClassDecl.getAllLayerMethodOriginals() {
+    Vector<MethodItem> retval = new Vector<MethodItem>();
+    Vector<MethodItem> ms = getAllLayerMethods();
+    List<BodyDecl> bodies = getBodyDecls();
+    for (Iterator<MethodItem> iter = ms.iterator(); iter.hasNext(); ) {
+      MethodItem lm = iter.next();
+      for (int i=0; i<bodies.getNumChild(); i++) {
+        BodyDecl bDecl = bodies.getChildNoTransform(i);
+        if (bDecl instanceof MethodDecl) {
+          MethodDecl m = (MethodDecl)bDecl;
+          MethodItem mi = new MethodItem(m);
+          if (m.getID().equals(lm.mDecl.getID()) && !retval.contains(mi)) {// 
+//TODO: calclating signature() maybe have a side effect.
+//      We need to have an alternative way to perform the same thing...
+//              m.signature().equals(lm.mDecl.signature())) {
+            retval.add(mi);
+          }
+        }
+      }
+    }
+    return retval;
+  }
+
+  class MethodItem {
+    public MethodDecl mDecl;
+    MethodItem(MethodDecl mDecl) {
+      this.mDecl = mDecl;
+    }
+    public boolean equals(Object o) {
+      if (o instanceof MethodItem) {
+        MethodItem m = (MethodItem)o;
+        return m.mDecl.getClass().equals(this.mDecl.getClass()) &&
+               m.mDecl.getID().equals(this.mDecl.getID()); //&&
+//TODO: calclating signature() maybe have a side effect.
+//      We need to have an alternative way to perform the same thing...
+//               m.mDecl.signature().equals(this.mDecl.signature());
+      } else {
+        return false;
+      }
+    }
+  }
+
+}

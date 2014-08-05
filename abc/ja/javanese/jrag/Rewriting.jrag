@@ -1,0 +1,427 @@
+/*
+ * Rewriting of Javanese terms, such as proceed and expressions used in
+ * the if expression
+ * Copyright (C) Tetsuo Kamina, 2012-2014
+ */
+
+import java.util.Collection;
+
+aspect Rewriting {
+    /*
+     * Firstly, we need to rewrite the special "proceed" invocation
+     * into a normal method invocation in Java.
+     * To do so, we need to obtain the name of the method where the
+     * proceed invocation is placed, which is performed by the following
+     * enclosingMethodName() method.
+     */
+    inh MethodDecl Expr.enclosingMethod();
+    eq AbstractDot.getLeft().enclosingMethod() = enclosingMethod();
+    eq MethodAccess.getArg(int i).enclosingMethod() = enclosingMethod();
+    eq ConstructorAccess.getArg(int i).enclosingMethod() = enclosingMethod();
+    eq ArrayTypeWithSizeAccess.getExpr().enclosingMethod() = enclosingMethod();
+    eq ArrayAccess.getExpr().enclosingMethod() = enclosingMethod();
+    eq ClassInstanceExpr.getArg(int i).enclosingMethod() = enclosingMethod();
+    eq FieldDeclaration.getInit().enclosingMethod() = null;
+    eq VariableDeclaration.getInit().enclosingMethod() = enclosingMethod();
+    eq VariableDecl.getInit().enclosingMethod() = enclosingMethod();
+    eq ArrayInit.getInit(int i).enclosingMethod() = enclosingMethod();
+    eq AssignExpr.getDest().enclosingMethod() = enclosingMethod();
+    eq AssignExpr.getSource().enclosingMethod() = enclosingMethod();
+    eq ParExpr.getExpr().enclosingMethod() = enclosingMethod();
+    eq Dims.getExpr().enclosingMethod() = enclosingMethod();
+    eq Unary.getOperand().enclosingMethod() = enclosingMethod();
+    eq CastExpr.getExpr().enclosingMethod() = enclosingMethod();
+    eq Binary.getLeftOperand().enclosingMethod() = enclosingMethod();
+    eq Binary.getRightOperand().enclosingMethod() = enclosingMethod();
+    eq InstanceOfExpr.getExpr().enclosingMethod() = enclosingMethod();
+    eq ConditionalExpr.getCondition().enclosingMethod() = enclosingMethod();
+    eq ConditionalExpr.getTrueExpr().enclosingMethod() = enclosingMethod();
+    eq ConditionalExpr.getFalseExpr().enclosingMethod() = enclosingMethod();
+    eq ExprStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq SwitchStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq ConstCase.getValue().enclosingMethod() = enclosingMethod();
+    eq IfStmt.getCondition().enclosingMethod() = enclosingMethod();
+    eq WhileStmt.getCondition().enclosingMethod() = enclosingMethod();
+    eq DoStmt.getCondition().enclosingMethod() = enclosingMethod();
+    eq ForStmt.getCondition().enclosingMethod() = enclosingMethod();
+    eq ReturnStmt.getResult().enclosingMethod() = enclosingMethod();
+    eq ThrowStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq SynchronizedStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq AssertStmt.getfirst().enclosingMethod() = enclosingMethod();
+    eq AssertStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq Proceed.getArg(int i).enclosingMethod() = enclosingMethod();
+    eq ElementConstantValue.getExpr().enclosingMethod() = null;
+    eq EnhancedForStmt.getExpr().enclosingMethod() = enclosingMethod();
+    eq EnumConstant.getArg(int i).enclosingMethod() = null;
+    eq IfPointcutExpr.getExpr().enclosingMethod() = null;
+
+    inh MethodDecl VariableDecl.enclosingMethod();
+    eq FieldDecl.getVariableDecl(int i).enclosingMethod() = null;
+    eq FieldDecl.getTypeAccess().enclosingMethod() = null;
+    eq VarDeclStmt.getVariableDecl(int i).enclosingMethod() = enclosingMethod();
+
+    inh MethodDecl Stmt.enclosingMethod();
+    eq ConstructorDecl.getConstructorInvocation().enclosingMethod() = null;
+    eq Block.getStmt(int i).enclosingMethod() = enclosingMethod();
+    eq LabeledStmt.getStmt().enclosingMethod() = enclosingMethod();
+    eq IfStmt.getThen().enclosingMethod() = enclosingMethod();
+    eq IfStmt.getElse().enclosingMethod() = enclosingMethod();
+    eq WhileStmt.getStmt().enclosingMethod() = enclosingMethod();
+    eq DoStmt.getStmt().enclosingMethod() = enclosingMethod();
+    eq ForStmt.getInitStmt(int i).enclosingMethod() = enclosingMethod();
+    eq ForStmt.getUpdateStmt(int i).enclosingMethod() = enclosingMethod();
+    eq ForStmt.getStmt().enclosingMethod() = enclosingMethod();
+    eq EnhancedForStmt.getStmt().enclosingMethod() = enclosingMethod();
+
+    inh MethodDecl Block.enclosingMethod();
+    eq InstanceInitializer.getBlock().enclosingMethod() = null;
+    eq StaticInitializer.getBlock().enclosingMethod() = null;
+    eq ConstructorDecl.getBlock().enclosingMethod() = null;
+    eq MethodDecl.getBlock().enclosingMethod() = this;
+    eq SwitchStmt.getBlock().enclosingMethod() = enclosingMethod();
+    eq SynchronizedStmt.getBlock().enclosingMethod() = enclosingMethod();
+    eq TryStmt.getBlock().enclosingMethod() = enclosingMethod();
+    eq TryStmt.getFinally().enclosingMethod() = enclosingMethod();
+    eq CatchClause.getBlock().enclosingMethod() = enclosingMethod();
+    eq ActivateBlock.getBlock().enclosingMethod() = null;
+    eq DeactivateBlock.getBlock().enclosingMethod() = null;
+    eq AdviceDecl.getBlock().enclosingMethod() = null;
+
+    inh MethodDecl CatchClause.enclosingMethod();
+    eq TryStmt.getCatchClause(int i).enclosingMethod() = enclosingMethod();
+    inh MethodDecl Dims.enclosingMethod();
+    eq VariableDecl.getDims(int i).enclosingMethod() = enclosingMethod();
+    eq ArraytypeNamePattern.getDims(int i).enclosingMethod() = null;
+
+    // rewriting rule for the "proceed" invocation
+    public boolean ASTNode.isProceed = false;
+    rewrite Proceed {
+        to ASTNode {
+            MethodDecl m = enclosingMethod();
+            String mName1 = m != null ? m.getID() : "";
+            String mName = "callNext$" + mName1;
+            String className = m.getEnclosingClassName();
+            Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
+//            Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
+            Expr trueExpr = new CastExpr(new ParseName("Layers$"+className),
+                                         new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter"))))).
+                                 qualifiesAccess(new MethodAccess(m.getID(), ((List)getArgs().fullCopy()).add(new ParseName("iter"))));
+            Expr falseExpr = new MethodAccess(m.getID()+"$original", ((List)getArgs().fullCopy()));
+            ConditionalExpr retval = new ConditionalExpr(cond, trueExpr, falseExpr);
+            retval.isProceed = true;
+            return retval;
+        }
+    }
+
+
+    /*
+     * Rewriting of experssions used in the if-expression
+     */
+    inh boolean Expr.withinIfPC();
+    eq AbstractDot.getLeft().withinIfPC() = withinIfPC();
+    eq MethodAccess.getArg(int i).withinIfPC() = withinIfPC();
+    eq ConstructorAccess.getArg(int i).withinIfPC() = withinIfPC();
+    eq ArrayTypeWithSizeAccess.getExpr().withinIfPC() = withinIfPC();
+    eq ArrayAccess.getExpr().withinIfPC() = withinIfPC();
+    eq ClassInstanceExpr.getArg(int i).withinIfPC() = withinIfPC();
+    eq FieldDeclaration.getInit().withinIfPC() = false;
+    eq VariableDeclaration.getInit().withinIfPC() = false;
+    eq VariableDecl.getInit().withinIfPC() = false;
+    eq ArrayInit.getInit(int i).withinIfPC() = withinIfPC();
+    eq AssignExpr.getDest().withinIfPC() = withinIfPC();
+    eq AssignExpr.getSource().withinIfPC() = withinIfPC();
+    eq ParExpr.getExpr().withinIfPC() = withinIfPC();
+    eq Dims.getExpr().withinIfPC() = false;
+    eq Unary.getOperand().withinIfPC() = withinIfPC();
+    eq CastExpr.getExpr().withinIfPC() = withinIfPC();
+    eq Binary.getLeftOperand().withinIfPC() = withinIfPC();
+    eq Binary.getRightOperand().withinIfPC() = withinIfPC();
+    eq InstanceOfExpr.getExpr().withinIfPC() = withinIfPC();
+    eq ConditionalExpr.getCondition().withinIfPC() = withinIfPC();
+    eq ConditionalExpr.getTrueExpr().withinIfPC() = withinIfPC();
+    eq ConditionalExpr.getFalseExpr().withinIfPC() = withinIfPC();
+    eq ExprStmt.getExpr().withinIfPC() = false;
+    eq SwitchStmt.getExpr().withinIfPC() = false;
+    eq ConstCase.getValue().withinIfPC() = false;
+    eq IfStmt.getCondition().withinIfPC() = false;
+    eq WhileStmt.getCondition().withinIfPC() = false;
+    eq DoStmt.getCondition().withinIfPC() = false;
+    eq ForStmt.getCondition().withinIfPC() = false;
+    eq ReturnStmt.getResult().withinIfPC() = false;
+    eq ThrowStmt.getExpr().withinIfPC() = false;
+    eq SynchronizedStmt.getExpr().withinIfPC() = false;
+    eq AssertStmt.getfirst().withinIfPC() = false;
+    eq AssertStmt.getExpr().withinIfPC() = false;
+    eq Proceed.getArg(int i).withinIfPC() = false;
+    eq ElementConstantValue.getExpr().withinIfPC() = false;
+    eq EnhancedForStmt.getExpr().withinIfPC() = false;
+    eq EnumConstant.getArg(int i).withinIfPC() = false;
+    eq IfPointcutExpr.getExpr().withinIfPC() = isGenerated ? false : true;
+//    eq EventActionSpec.getAccess().withinIfPC() = false;
+
+    eq ExplicitTypeNamePattern.getAccess().withinIfPC() = false;  
+
+    public boolean IfPointcutExpr.isGenerated = false;
+    private boolean VarAccess.accessed = false;
+    rewrite VarAccess {
+        when(withinIfPC() && lookupVariable(getID()).size()==1 && !accessed)
+        to Expr {
+            accessed = true;
+            SimpleSet var = lookupVariable(getID());
+            Object val = var.iterator().next();
+            if (val instanceof ParameterDeclaration) {
+                ParameterDeclaration p = (ParameterDeclaration)val;
+                return new ParExpr(new CastExpr(
+                                    (TypeAccess)p.getTypeAccess().fullCopy(),
+                                    new ParseName("__monitor")));
+            } else {
+                return this;
+            }
+        }
+    }
+
+    private boolean PackageAccess.rewritten = false;
+    rewrite PackageAccess {
+//        when(withinIfPC() && lookupVariable(getPackage()).size()==1)
+        when (!rewritten)
+        to Expr {
+            try {
+                if (withinIfPC() && lookupVariable(getPackage()).size()==1) {
+                    SimpleSet var = lookupVariable(getPackage());
+                    ParameterDeclaration p = (ParameterDeclaration)var.iterator().next();
+                    return new ParExpr(new CastExpr(
+                                    (TypeAccess)p.getTypeAccess().fullCopy(),
+                                    new ParseName("__monitor")));
+                } else {
+                    rewritten = true;
+                    return this;
+                }
+            } catch (Exception e) {
+                rewritten = true;
+                return this;
+            }
+        }
+    }
+
+    inh ClassDecl Expr.enclosingClass();
+    eq AbstractDot.getLeft().enclosingClass() = enclosingClass();
+    eq MethodAccess.getArg(int i).enclosingClass() = enclosingClass();
+    eq ConstructorAccess.getArg(int i).enclosingClass() = enclosingClass();
+    eq ArrayTypeWithSizeAccess.getExpr().enclosingClass() = enclosingClass();
+    eq ArrayAccess.getExpr().enclosingClass() = enclosingClass();
+    eq ClassInstanceExpr.getArg(int i).enclosingClass() = enclosingClass();
+    eq FieldDeclaration.getInit().enclosingClass() = enclosingClass();
+    eq VariableDeclaration.getInit().enclosingClass() = enclosingClass();
+    eq VariableDecl.getInit().enclosingClass() = enclosingClass();
+    eq ArrayInit.getInit(int i).enclosingClass() = enclosingClass();
+    eq AssignExpr.getDest().enclosingClass() = enclosingClass();
+    eq AssignExpr.getSource().enclosingClass() = enclosingClass();
+    eq ParExpr.getExpr().enclosingClass() = enclosingClass();
+    eq Dims.getExpr().enclosingClass() = enclosingClass();
+    eq Unary.getOperand().enclosingClass() = enclosingClass();
+    eq CastExpr.getExpr().enclosingClass() = enclosingClass();
+    eq Binary.getLeftOperand().enclosingClass() = enclosingClass();
+    eq Binary.getRightOperand().enclosingClass() = enclosingClass();
+    eq InstanceOfExpr.getExpr().enclosingClass() = enclosingClass();
+    eq ConditionalExpr.getCondition().enclosingClass() = enclosingClass();
+    eq ConditionalExpr.getTrueExpr().enclosingClass() = enclosingClass();
+    eq ConditionalExpr.getFalseExpr().enclosingClass() = enclosingClass();
+    eq ExprStmt.getExpr().enclosingClass() = enclosingClass();
+    eq SwitchStmt.getExpr().enclosingClass() = enclosingClass();
+    eq ConstCase.getValue().enclosingClass() = enclosingClass();
+    eq IfStmt.getCondition().enclosingClass() = enclosingClass();
+    eq WhileStmt.getCondition().enclosingClass() = enclosingClass();
+    eq DoStmt.getCondition().enclosingClass() = enclosingClass();
+    eq ForStmt.getCondition().enclosingClass() = enclosingClass();
+    eq ReturnStmt.getResult().enclosingClass() = enclosingClass();
+    eq ThrowStmt.getExpr().enclosingClass() = enclosingClass();
+    eq SynchronizedStmt.getExpr().enclosingClass() = enclosingClass();
+    eq AssertStmt.getfirst().enclosingClass() = enclosingClass();
+    eq AssertStmt.getExpr().enclosingClass() = enclosingClass();
+    eq Proceed.getArg(int i).enclosingClass() = enclosingClass();
+    eq ElementConstantValue.getExpr().enclosingClass() = null;
+    eq EnhancedForStmt.getExpr().enclosingClass() = enclosingClass();
+    eq EnumConstant.getArg(int i).enclosingClass() = enclosingClass();
+    eq IfPointcutExpr.getExpr().enclosingClass() = null;
+
+    inh ClassDecl VariableDecl.enclosingClass();
+    eq FieldDecl.getVariableDecl(int i).enclosingClass() = enclosingClass();
+    eq VarDeclStmt.getVariableDecl(int i).enclosingClass() = enclosingClass();
+
+    inh ClassDecl Stmt.enclosingClass();
+    eq ConstructorDecl.getConstructorInvocation().enclosingClass() = enclosingClass();
+    eq Block.getStmt(int i).enclosingClass() = enclosingClass();
+    eq LabeledStmt.getStmt().enclosingClass() = enclosingClass();
+    eq IfStmt.getThen().enclosingClass() = enclosingClass();
+    eq IfStmt.getElse().enclosingClass() = enclosingClass();
+    eq WhileStmt.getStmt().enclosingClass() = enclosingClass();
+    eq DoStmt.getStmt().enclosingClass() = enclosingClass();
+    eq ForStmt.getInitStmt(int i).enclosingClass() = enclosingClass();
+    eq ForStmt.getUpdateStmt(int i).enclosingClass() = enclosingClass();
+    eq ForStmt.getStmt().enclosingClass() = enclosingClass();
+    eq EnhancedForStmt.getStmt().enclosingClass() = enclosingClass();
+
+    inh ClassDecl Block.enclosingClass();
+    eq InstanceInitializer.getBlock().enclosingClass() = enclosingClass();
+    eq StaticInitializer.getBlock().enclosingClass() = enclosingClass();
+    eq ConstructorDecl.getBlock().enclosingClass() = enclosingClass();
+    eq MethodDecl.getBlock().enclosingClass() = enclosingClass();
+    eq SwitchStmt.getBlock().enclosingClass() = enclosingClass();
+    eq SynchronizedStmt.getBlock().enclosingClass() = enclosingClass();
+    eq TryStmt.getBlock().enclosingClass() = enclosingClass();
+    eq TryStmt.getFinally().enclosingClass() = enclosingClass();
+    eq CatchClause.getBlock().enclosingClass() = enclosingClass();
+    eq ActivateBlock.getBlock().enclosingClass() = enclosingClass();
+    eq DeactivateBlock.getBlock().enclosingClass() = enclosingClass();
+    eq AdviceDecl.getBlock().enclosingClass() = null;
+
+    inh ClassDecl CatchClause.enclosingClass();
+    eq TryStmt.getCatchClause(int i).enclosingClass() = enclosingClass();
+    inh ClassDecl Dims.enclosingClass();
+    eq VariableDecl.getDims(int i).enclosingClass() = enclosingClass();
+    eq ArraytypeNamePattern.getDims(int i).enclosingClass() = null;
+
+    inh ClassDecl BodyDecl.enclosingClass();
+    eq TypeDecl.getBodyDecl(int i).enclosingClass() = null;
+    eq ClassDecl.getBodyDecl(int i).enclosingClass() = this;
+//    eq LayerDecl.getBodyDecl(int i).enclosingClass() = this;
+    eq EnumConstant.getBodyDecl(int i).enclosingClass() = enclosingClass();
+
+    private boolean MethodAccess.rewritten = false;
+
+    public boolean MethodAccess.isLayeredMethod() {
+        Collection c = null;
+        try {
+            c = lookupMethod(getID());
+        } catch (Exception e) {
+            return false;
+        }
+        for (Iterator iter = c.iterator(); iter.hasNext(); ) {
+            MethodDecl m = (MethodDecl)iter.next();
+            if (m.isLayeredMethod()) return true;
+        }
+        return false;
+    }
+
+    public boolean MethodDecl.isLayeredMethod() {
+        ASTNode node = getParent().getParent();
+        if (node instanceof ClassDecl) {
+            ClassDecl tDecl = (ClassDecl)node;
+            String className = tDecl.getID();
+            if (className.length() > 6)
+                className = className.substring(0,6);
+            if (className.equals("Layer$")) {
+                if (!getModifiers().isPrivate())
+                    return true;
+            }
+        }
+        return false;
+    }
+
+/*
+    rewrite MethodAccess {
+        when(!rewritten && isLayeredMethod())
+        to MethodAccess {
+            List args = getArgs();
+            List newArgs = new List();
+            for (int i=0; i<args.getNumChild(); i++) {
+                newArgs.add(args.getChildNoTransform(i));
+            }
+            newArgs.add(new IntegerLiteral("0"));
+            MethodAccess retval = new MethodAccess(getID(), newArgs);
+            retval.rewritten = true;
+            return retval;
+        }
+    }
+*/
+
+    rewrite MethodAccess {
+        when(!rewritten && isLayeredMethod())
+        to Expr {
+            String outerClass = getEnclosingClassName();
+            MethodAccess mAccess = new MethodAccess(getID(), getArgs());
+            mAccess.rewritten = true;
+            return new ThisAccess("this").qualifiesAccess(mAccess);
+        }
+    }
+
+    private boolean ThisAccess.withinLayer() {
+        MethodDecl m = enclosingMethod();
+        if (m != null) {
+            return m.isLayeredMethod();
+        }
+        return false;
+    }
+
+    private boolean ThisAccess.rewritten = false;
+
+    rewrite ThisAccess {
+        when(!rewritten && withinLayer())
+        to Access {
+            rewritten = true;
+            ClassDecl l = enclosingClass();
+            if (l != null) {
+                ClassDecl enclosingClass = (ClassDecl)l.getParent().getParent().getParent();
+                return new ParseName(enclosingClass.getID()).qualifiesAccess(this);
+            } else {
+                return this;
+            }
+        }
+    }
+
+    rewrite ClassInstanceExpr {
+        when((getAccess() instanceof TypeAccess) &&
+             ((TypeAccess)getAccess()).generated)
+        to Access {
+            String m = Program.monitorInstanceMapping.get(type().name());
+            String monitorArgType = Program.getMonitorArgType(m);
+            Access receiver = new ParseName("Monitor$" + monitorArgType);
+            Access retval = receiver.qualifiesAccess(new MethodAccess("dummyConstructor", getArgs()));
+            return retval;
+        }
+    }
+
+    private boolean ClassInstanceExpr.isMonitorInstance() {
+        return (Program.monitorInstanceMapping.get(type().name()) != null) ? true : false;
+    }
+
+    public boolean TypeAccess.isMonitorType() {
+        return (Program.program.getMonitorDecl(getID()) != null) ? true : false;
+    }
+
+    public boolean TypeAccess.generated = false;
+
+    public boolean TypeAccess.rewritten = false;
+
+    rewrite TypeAccess {
+        when(!rewritten && Program.program != null && isMonitorType())
+        to TypeAccess {
+            rewritten = true;
+            try {
+                if ((enclosingMethod() == null) ||
+                    (enclosingMethod() != null &&
+                     !enclosingMethod().getID().equals("dummyConstructor"))) {
+                    String monitorArgType = Program.getMonitorArgType(getID());
+                    Program.monitorInstanceMapping.put("Monitor$" + monitorArgType, getID());
+                    TypeAccess a = new TypeAccess(getPackage(), "Monitor$" + monitorArgType);
+                    a.generated = true;
+                    return a;
+                }
+            } catch (Exception e) {
+                return this;
+            }
+            return this;
+        }
+    }
+
+    rewrite ImportDecl {
+        when ((getAccess() instanceof TypeAccess) &&
+              ((TypeAccess)getAccess()).isMonitorType())
+        to ImportDecl {
+            TypeAccess ta = (TypeAccess)getAccess();
+            String monitorArgType = Program.getMonitorArgType(ta.getID());
+            return new SingleTypeImportDecl(new TypeAccess(ta.getPackage(), "Monitor$" + monitorArgType));
+        }
+    }
+
+}

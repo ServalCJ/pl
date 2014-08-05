@@ -1,0 +1,150 @@
+/*
+ * Inferring monitor instances from pointcut expressions
+ * Copyright (C) Tetsuo Kamina, 2013-2014
+ */
+
+aspect InferBinding {
+
+  public String ContextDecl.inferBinding(PointcutActionSpec spec, ParameterDeclaration p) {
+    String monitorType = ((TypeAccess)p.getTypeAccess()).getID();
+    java.util.Vector<String> retval =
+      spec.getPointcutExpr().matchMonitor(monitorType);
+    if (retval.size() == 0) {
+//      System.out.println("Not found");
+      error("no monitors are found at the action specification");
+      return null;
+    }
+    if (retval.size() > 1) {
+//      System.out.println("Too many");
+      error("multiple monitors are found at the action specification");
+    }
+    return retval.elementAt(0);
+  }
+
+  public java.util.Vector<String> PointcutExpr.matchMonitor(String type) {
+    error("unsupported pointcut expression");
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> BinaryPointcutExpr.matchMonitor(String type) {
+    java.util.Vector<String> lhs = getLhs().matchMonitor(type);
+    java.util.Vector<String> rhs = getRhs().matchMonitor(type);
+    for (java.util.Iterator<String> iter = rhs.iterator(); iter.hasNext(); ) {
+      lhs.add(iter.next());
+    }
+    return lhs;
+  }
+
+  public java.util.Vector<String> NegPointcutExpr.matchMonitor(String type) {
+    return getPointcutExpr().matchMonitor(type);
+  }
+
+  public java.util.Vector<String> CallPointcutExpr.matchMonitor(String type) {
+    MemberPattern ptn = getPattern();
+    return ptn.matchMonitor(type, "call");
+  }
+
+  public java.util.Vector<String> ExecutionPointcutExpr.matchMonitor(String type) {
+    MemberPattern ptn = getPattern();
+    return ptn.matchMonitor(type, "execution");
+  }
+
+  public java.util.Vector<String> SetPointcutExpr.matchMonitor(String type) {
+    FieldPattern ptn = getPattern();
+    return ptn.matchMonitor(type, "set");
+  }
+
+  public java.util.Vector<String> GetPointcutExpr.matchMonitor(String type) {
+    FieldPattern ptn = getPattern();
+    return ptn.matchMonitor(type, "get");
+  }
+
+  public java.util.Vector<String> IfPointcutExpr.matchMonitor(String type) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> ThisPointcutExpr.matchMonitor(String type) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> TargetPointcutExpr.matchMonitor(String type) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> ArgsPointcutExpr.matchMonitor(String type) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> FieldPattern.matchMonitor(String type, String cxt) {
+    return getTypePattern().matchMonitor(type, cxt);
+  }
+
+  public java.util.Vector<String> MemberPattern.matchMonitor(String type, String cxt) {
+    java.util.Vector<String> name = new java.util.Vector<String>();
+    if (this instanceof MethodPattern) {
+      MethodPattern ptn = (MethodPattern)this;
+      name = ptn.getMemberNamePattern().matchMonitor(type, cxt + "member");
+      List<FormalPattern> formals = ptn.getFormalPatterns();
+      for (int i=0; i< formals.getNumChild(); i++) {
+        FormalPattern fptn = formals.getChildNoTransform(i);
+        java.util.Vector<String> formal = fptn.matchMonitor(type, "arg");
+        for (java.util.Iterator<String> iter = formal.iterator(); iter.hasNext(); ) {
+          name.add(iter.next());
+        }
+      }
+    } else if (this instanceof ConstructorPattern) {
+      ConstructorPattern ptn = (ConstructorPattern)this;
+      if (cxt.equals("execution")) {
+        name = ptn.getMemberNamePattern().matchMonitor(type, cxt + "member");
+      }
+      List<FormalPattern> formals = ptn.getFormalPatterns();
+      for (int i=0; i< formals.getNumChild(); i++) {
+        FormalPattern fptn = formals.getChildNoTransform(i);
+        java.util.Vector<String> formal = fptn.matchMonitor(type, "arg");
+        for (java.util.Iterator<String> iter = formal.iterator(); iter.hasNext(); ) {
+          name.add(iter.next());
+        }
+      }
+    }
+    return name;
+  }
+
+  public java.util.Vector<String> Pattern.matchMonitor(String type, String cxt) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> ExplicitTypeNamePattern.matchMonitor(String type, String cxt) {
+    java.util.Vector<String> retval = new java.util.Vector<String>();
+    Access access = getAccess();
+    if (access instanceof TypeAccess) {
+      TypeAccess tAccess = (TypeAccess)access;
+      if (tAccess.getID().equals(type)) {
+        if (cxt.equals("get")) {
+          retval.add("target");
+        } else if (cxt.equals("set")) {
+          retval.add("target");
+        } else if (cxt.equals("arg")) {
+          retval.add("args");
+        } else if (cxt.equals("callmember")) {
+          retval.add("target");
+        } else if (cxt.equals("executionmember")) {
+          retval.add("this");
+        }
+      }
+    }
+    return retval;
+  }
+
+  public java.util.Vector<String> FormalPattern.matchMonitor(String type, String cxt) {
+    return new java.util.Vector<String>();
+  }
+
+  public java.util.Vector<String> ConcreteFormalPattern.matchMonitor(String type, String cxt) {
+    return getPattern().matchMonitor(type, cxt);
+  }
+
+  public java.util.Vector<String> DotNamePattern.matchMonitor(String type, String cxt) {
+    return getLhs().matchMonitor(type, cxt);
+  }
+
+}

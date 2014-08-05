@@ -1,0 +1,348 @@
+/*
+ * Utility methods and classes
+ * Copyright (C) Tetsuo Kamina, 2012-2014
+ */
+
+import java.util.Iterator;
+import java.util.Vector;
+
+aspect Utility {
+
+    public boolean MonitorDecl.usingContext(String c) {
+        for (Iterator<ActivateDecl> iter =getActivateDecls().iterator();
+             iter.hasNext(); ) {
+            ActivateDecl aDecl = iter.next();
+            if (aDecl.usingContext(c)) return true;
+        }
+        return false;
+    }
+
+    public boolean ActivateDecl.usingContext(String c) {
+        return getContextCond().usingContext(c);
+    }
+
+    public boolean ContextCond.usingContext(String c) { return false; }
+
+    public boolean AtomCond.usingContext(String c) {
+        if (c.equals(getName())) { return true; }
+        else {
+            MonitorDecl m = getEnclosingMonitor();
+            if (m != null) {
+                List<BodyDecl> decls = m.getBodyDecls();
+                for (int i=0; i<decls.getNumChild(); i++) {
+                    BodyDecl decl = decls.getChildNoTransform(i);
+                    if (decl instanceof ActivateDecl) {
+                        ActivateDecl aDecl = (ActivateDecl)decl;
+                        if (aDecl.getID().equals(getName()))
+                            return aDecl.getContextCond().usingContext(c);
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    public boolean NotCond.usingContext(String c) {
+        return getContextCond().usingContext(c);
+    }
+
+    public boolean BinaryCond.usingContext(String c) {
+        return getLeft().usingContext(c) || getRight().usingContext(c);
+    }
+
+    public Vector<ActivateDecl> MonitorDecl.getActivateDecls() {
+        Vector<ActivateDecl> activates = new Vector<ActivateDecl>();
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChild(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof ActivateDecl) {
+                activates.add((ActivateDecl)decl);
+            }
+        }
+        return activates;
+    }
+
+    public TypeAccess MonitorDecl.getMonitorType(String name) {
+        List<ParameterDeclaration> params = getParameters();
+        if (params.getNumChild() > 0) {
+            String typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
+            return new TypeAccess("", "Monitor$" + typeName);
+        } else {
+            return new TypeAccess("", "GlobalMonitor");
+        }
+    }
+
+    public List<Stmt> ContextDecl.forEachMonitorsInAdvice(List<Stmt> ifStmts, String targetType) {
+        List<Stmt> forStmts = new List<Stmt>();
+        List<Stmt> initStmts = new List<Stmt>();
+        Access iterHas = new ParseName("iter").qualifiesAccess(new ParseName("hasNext"));
+        MethodAccess hasNext = new MethodAccess("hasNext", new List());
+        ((AbstractDot)iterHas).replaceLast(hasNext);
+        ifStmts.add(new ForStmt(
+                            initStmts,
+                            new Opt(iterHas),
+                            new List(),
+                            new Block(forStmts)));
+
+        Access initIter = new ParseName("monitor").qualifiesAccess(new ParseName("subscribers$"+targetType)).qualifiesAccess(new ParseName("iterator"));
+        MethodAccess iterator = new MethodAccess("iterator", new List());
+        ((AbstractDot)initIter).replaceLast(iterator);
+        VariableDecl iterVar = new VariableDecl("iter", new List(), new Opt());
+        iterVar.setInit(initIter);
+        initStmts.add(new VarDeclStmt(
+                              new Modifiers(),
+                              new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("Iterator")),
+                              new List().add(iterVar)));
+        return forStmts;
+    }
+
+    public Vector<LayerDecl> Program.getAllLayers() {
+        Vector<LayerDecl> retval = new Vector<LayerDecl>();
+        List<CompilationUnit> units = getCompilationUnits();
+        for (int i=0; i<units.getNumChild(); i++) {
+            CompilationUnit unit = units.getChildNoTransform(i);
+            List<TypeDecl> decls = unit.getTypeDecls();
+            for (int j=0; j<decls.getNumChild(); j++) {
+                TypeDecl decl = decls.getChildNoTransform(j);
+                if (decl instanceof ClassDecl) {
+                    Vector<LayerDecl> tmp = ((ClassDecl)decl).getAllLayers();
+                    for (Iterator<LayerDecl> iter = tmp.iterator(); iter.hasNext();) {
+                        retval.add(iter.next());
+                    }
+                }
+            }
+        }
+        return retval;
+    }
+
+    public Vector<String> Program.getAllReferredLayerNames() {
+        Vector<String> retval = new Vector<String>();
+        Iterator<MonitorDecl> i = monitorDecls.iterator();
+        while (i.hasNext()) {
+            MonitorDecl mDecl = i.next();
+            Vector<ActivateDecl> adcls = mDecl.getActivateDecls();
+            Iterator<ActivateDecl> iter = adcls.iterator();
+            while (iter.hasNext()) {
+                String layerName = iter.next().getID();
+                retval.add(layerName);
+            }
+        }
+        return retval;
+    }
+
+    public Vector<String> Program.getAllLayerNames() {
+        Vector<String> retval = new Vector<String>();
+        Vector<LayerDecl> layers = getAllLayers();
+        for (Iterator<LayerDecl> iter = layers.iterator(); iter.hasNext(); ) {
+            LayerDecl layer = iter.next();
+            if (!retval.contains(layer.getID())) retval.add(layer.getID());
+        }
+        return retval;
+    }
+
+    public Vector<LayerDecl> ClassDecl.getAllLayers() {
+        Vector<LayerDecl> retval = new Vector<LayerDecl>();
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChild(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof LayerDecl) {
+                retval.add((LayerDecl)decl);
+            } else if (decl instanceof MemberClassDecl) {
+                ClassDecl cDecl = ((MemberClassDecl)decl).getClassDecl();
+                Vector<LayerDecl> tmp = cDecl.getAllLayers();
+                for (Iterator<LayerDecl> iter = tmp.iterator(); iter.hasNext();) {
+                    retval.add(iter.next());
+                }
+            } 
+        }
+        return retval;
+    }
+
+    public Vector<String> ClassDecl.getAllLayerNames() {
+        Vector<String> retval = new Vector<String>();
+        Vector<LayerDecl> layers = getAllLayers();
+        for (Iterator<LayerDecl> iter = layers.iterator(); iter.hasNext(); ) {
+            LayerDecl layer = iter.next();
+            if (!retval.contains(layer.getID())) retval.add(layer.getID());
+        }
+        return retval;
+    }
+
+    class GenericPair<Type, IDType> {
+        protected IDType typeName;
+        protected String contextName;
+        protected Type expr;
+
+        public GenericPair(IDType typeName, String contextName, Type expr) {
+            this.typeName = typeName;
+            this.contextName = contextName;
+            this.expr = expr;
+        }
+
+        public IDType getType() { return typeName; }
+        public String getContextName() { return contextName; }
+        public Type getExpr() { return expr; }
+        public void setType(IDType type) { typeName = type; }
+    }
+
+    class IfCondPair extends GenericPair<Expr, MonitorDecl> {
+        public IfCondPair(MonitorDecl typeName, String contextName, Expr expr) {
+            super(typeName, contextName, expr);
+        }
+    }
+
+    class CflowPair extends GenericPair<PointcutExpr, String> {
+        public CflowPair(String typeName, String contextName, PointcutExpr pcExpr){
+            super(typeName, contextName, pcExpr);
+        }
+    }
+
+    class PrePair extends GenericPair<ContextDecl, MonitorDecl> {
+        public PrePair(MonitorDecl typeName, String contextName, ContextDecl expr) {
+            super(typeName, contextName, expr);
+        }
+    }
+
+    public static Program Program.program = null;
+
+    private static Vector<MonitorDecl> Program.monitorDecls = new Vector<MonitorDecl>();
+
+    public Program ASTNode.getProgram() {
+        return Program.program;
+    }
+
+    public static boolean AspectDecl.global = false;
+
+    public Vector<TypeAccess> Program.getMonitorParams() {
+        Vector<TypeAccess> retval = new Vector<TypeAccess>();
+        for (Iterator<MonitorDecl> i = monitorDecls.iterator(); i.hasNext(); ) {
+            MonitorDecl mDecl = i.next();
+            List<ParameterDeclaration> pms = mDecl.getParameters();
+            for (int j=0; j<pms.getNumChild(); j++) {
+                ParameterDeclaration p = pms.getChildNoTransform(j);
+                retval.add((TypeAccess)p.getTypeAccess().fullCopy());
+            }
+        }
+        return retval;
+    }
+
+    public ClassDecl Program.getClassDecl(String name) {
+        List<CompilationUnit> units = getCompilationUnits();
+        for (int i=0; i<units.getNumChild(); i++) {
+            CompilationUnit unit = units.getChildNoTransform(i);
+            List<TypeDecl> decls = unit.getTypeDecls();
+            for (int j=0; j<decls.getNumChild(); j++) {
+                TypeDecl decl = decls.getChildNoTransform(j);
+                if (decl instanceof ClassDecl) {
+                    ClassDecl cDecl = (ClassDecl)decl;
+                    if (cDecl.getID().equals(name)) return cDecl;
+                }
+            }
+        }
+        return null;
+    }
+
+    public static boolean Program.isContextAffecting(String context, String layer) {
+        for (Iterator<MonitorDecl> i = monitorDecls.iterator(); i.hasNext(); ){
+            MonitorDecl m = i.next();
+            Vector<ActivateDecl> aDecls = m.getActivateDecls();
+            Iterator<ActivateDecl> iter;
+            for (iter = aDecls.iterator(); iter.hasNext(); ) {
+                ActivateDecl a = iter.next();
+                if (a.getID().equals(layer))
+                    return a.usingContext(context);
+            }
+        }
+        return false;
+    }
+
+    public CompilationUnit ASTNode.getCompilationUnit() {
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        if (parent instanceof CompilationUnit) {
+            return (CompilationUnit)parent;
+        } else {
+            return (CompilationUnit)parent.getCompilationUnit();
+        }
+    }
+
+    public String ASTNode.getEnclosingMethodName() {
+        if (this instanceof MethodAccess)
+            return ((MethodAccess)this).getID();
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingMethodName();
+    }
+
+    public String ASTNode.getEnclosingClassName() {
+        if (this instanceof ClassDecl) {
+            String id = ((ClassDecl)this).getID();
+            if (!id.contains("$")) return id;
+        }
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingClassName();
+    }
+
+    public MonitorDecl ASTNode.getEnclosingMonitor() {
+        if (this instanceof MonitorDecl)
+            return (MonitorDecl)this;
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingMonitor();
+    }
+
+    public String ASTNode.getEnclosingMonitorName() {
+        MonitorDecl monitor = getEnclosingMonitor();
+        return monitor == null ? null : monitor.getID();
+    }
+
+    public void CompilationUnit.copyImportDeclsIfNotExists(CompilationUnit from) {
+        List<ImportDecl> fromImportDecls = from.getImportDecls();
+        for (int i=0; i<fromImportDecls.getNumChild(); i++) {
+            ImportDecl importDecl = fromImportDecls.getChildNoTransform(i);
+            copyImportDeclIfNotExists(importDecl);
+        }
+    }
+
+    private void CompilationUnit.copyImportDeclIfNotExists(ImportDecl decl) {
+        List<ImportDecl> toImportDecls = getImportDecls();
+        boolean found = false;
+        for (int i=0; i<toImportDecls.getNumChild(); i++) {
+            ImportDecl toDecl = toImportDecls.getChildNoTransform(i);
+            if (toDecl.equals(decl)) found = true;
+        }
+        if (!found && !localLookupType(decl.getAccess().type().name()).contains(decl.getAccess().type())) toImportDecls.add(decl);
+    }
+
+    public CompilationUnit MonitorDecl.getCompilationUnit() {
+        return cu;
+    }
+
+    public static String Program.getMonitorArgType(String monitorName) {
+        return program.getMonitorArgTypeInner(monitorName);
+    }
+
+    private String Program.getMonitorArgTypeInner(String monitorName) {
+        MonitorDecl mDecl = getMonitorDecl(monitorName);
+        if (mDecl == null) return null;
+        List<ParameterDeclaration> params = mDecl.getParameters();
+        if (params.getNumChild() > 0) {
+            return ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
+        }
+        return "";
+    }
+
+    public MonitorDecl Program.getMonitorDecl(String monitorName) {
+        for (Iterator<MonitorDecl> iter = monitorDecls.iterator(); iter.hasNext(); ) {
+            MonitorDecl m = iter.next();
+            if (m.getID().equals(monitorName)) return m;
+        }
+        return null;
+    }
+
+    public void ASTNode.insertDebugMessage(List<Stmt> stmts, String message) {
+        stmts.add(new ExprStmt(new ParseName("System").qualifiesAccess(new ParseName("out")).qualifiesAccess(new MethodAccess("println", new List().add(new StringLiteral(message))))));
+    }
+
+}

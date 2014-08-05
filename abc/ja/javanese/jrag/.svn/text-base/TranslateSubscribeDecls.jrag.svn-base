@@ -1,0 +1,236 @@
+/*
+ * Subscriber declaration translations
+ * Copyright (C) Tetsuo Kamina, 2013-2014
+ */
+
+aspect TranslateSubscribeDecls {
+
+    public String PointcutExpr.monitorVarName() {
+//        error("monitor pointcut expression is not used");
+        return null;
+    }
+
+    public String BinaryPointcutExpr.monitorVarName() {
+        String left = getLhs().monitorVarName();
+        String right = getRhs().monitorVarName();
+        if (left != null) {
+            if (right != null) {
+                error("monitor pointcut is used multiple times");
+                return null;
+            } else {
+                return left;
+            }
+        } else {
+            return right;
+        }
+    }
+
+    public String MonitorPointcutExpr.monitorVarName() {
+        return getPattern().monitorVarName();
+    }
+
+    public String Pattern.monitorVarName() { return null; }
+
+    public String BindingPattern.monitorVarName() { return null; }
+
+    public String NameBindingPattern.monitorVarName() {
+        return getPattern().monitorVarName();
+    }
+
+    public PointcutExpr PointcutExpr.rmvMonitor() { return this; }
+
+    public PointcutExpr BinaryPointcutExpr.rmvMonitor() {
+        if (getLhs() instanceof MonitorPointcutExpr) {
+            return getRhs();
+        } else if (getRhs() instanceof MonitorPointcutExpr) {
+            return getLhs();
+        } else {
+            BinaryPointcutExpr bin = (BinaryPointcutExpr)fullCopy();
+            bin.setLhs(getLhs().rmvMonitor());
+            bin.setRhs(getRhs().rmvMonitor());
+            return bin;
+        }
+    }
+
+    public String ExplicitTypeNamePattern.monitorVarName() {
+        if (getAccess() instanceof VarAccess) {
+            return ((VarAccess)getAccess()).getID();
+        }
+        return null;
+    }
+
+    private boolean SubscribeDecl.withinGlobalMonitor() {
+        if (getParent() == null) return true;
+
+        MonitorDecl monitor = (MonitorDecl)getParent().getParent();
+        if (monitor instanceof GlobalMonitorDecl) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private String SubscribeDecl.getSpecTypeName(String id) {
+        String retval = "";
+        for (int i=0; i<getNumParameter(); i++) {
+            ParameterDeclaration param = getParameter(i);
+            if (param.getID().equals(id)) {
+                retval = ((TypeAccess)param.getTypeAccess().fullCopy()).getID();
+            }
+        }
+        return retval;
+    }
+
+    public void SubscribeDecl.aspectJBodyDecls(List<BodyDecl> retval) {
+        List<ParameterDeclaration> params = getParameters();
+
+        String monitorVar = getPointcutExpr().monitorVarName();
+        String monitorType = null;
+        for (int i=0; i<params.getNumChild(); i++) {
+            ParameterDeclaration p = params.getChildNoTransform(i);
+            if (p.getID().equals(monitorVar)) {
+                monitorType = ((TypeAccess)p.getTypeAccess()).getID();
+            }
+        }
+        if (monitorVar == null) {
+            monitorVar = "_monitorkey";
+        }
+
+        List<Stmt> adStmts = new List<Stmt>();
+
+        // inserting "((Monitor$Type)map.get(monitor)).subscribe(target);"
+        Access mapGet = new ParseName("map").qualifiesAccess(new ParseName("get"));
+        List<Expr> args = new List<Expr>();
+        args.add(new ParseName(monitorVar));
+        MethodAccess m = new MethodAccess("get", args);
+        ((AbstractDot)mapGet).replaceLast(m);
+
+        TypeAccess monitorAccess = null;
+        if (getParent() == null) {
+            monitorAccess = new TypeAccess("", "GlobalMonitor");
+        } else {
+            MonitorDecl monitor = (MonitorDecl)getParent().getParent();
+            monitorAccess = monitor.getMonitorType(monitorType);
+        }
+        List<SubscribeSpec> specs = getSubscribeSpecList();
+        for (int i=0; i<specs.getNumChild(); i++) {
+            SubscribeSpec spec = specs.getChildNoTransform(i);
+            String callName = null;
+            if (spec instanceof Subscribe) { callName = "subscribe"; }
+            else { callName = "unsubscribe"; }
+            Access subscribe = new ParExpr(new CastExpr(monitorAccess, mapGet)).qualifiesAccess(new ParseName(callName));
+            List<Expr> args1 = new List<Expr>();
+            args1.add(new ParseName(spec.getID()));
+            MethodAccess m1 = new MethodAccess(callName, args1);
+            ((AbstractDot)subscribe).replaceLast(m1);
+            adStmts.add(new ExprStmt(subscribe));
+
+            // inserting "target.__monitor = monitor;"
+            Access monitorField = new ParseName(spec.getID()).qualifiesAccess(new ParseName("__monitor"));
+            Expr assign = new AssignSimpleExpr(
+                                  monitorField,
+                                  new ParseName(monitorVar));
+            adStmts.add(new ExprStmt(assign));
+
+            String specTypeName = getSpecTypeName(spec.getID());
+            if (withinGlobalMonitor() &&
+                !specTypeName.equals("GlobalLayerManager")) {
+                Program prog = getProgram();
+
+                Stmt lmDecl = new VarDeclStmt(
+                                  new Modifiers(),
+                                  new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager")),
+                                  new List().add(new VariableDecl(
+                                      "lm",
+                                      new List(),
+                                      new Opt(new ParseName(spec.getID()).qualifiesAccess(new ParseName("lm"))))));
+                adStmts.add(lmDecl);
+
+                Stmt lmDecl2 = new VarDeclStmt(
+                                  new Modifiers(),
+                                  new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager")),
+                                  new List().add(new VariableDecl(
+                                      "lm2",
+                                      new List(),
+                                      new Opt(new ParseName("_glm").qualifiesAccess(new ParseName("lm"))))));
+                adStmts.add(lmDecl2);
+
+                Vector<String> layers = prog.getAllLayerNames();
+                Iterator<String> iter = layers.iterator();
+                while (iter.hasNext()) {
+                    String varName = "current" + iter.next();
+                    Stmt copy = new ExprStmt(
+                        new AssignSimpleExpr(
+                            new ParseName("lm").qualifiesAccess(new ParseName(varName)),
+                            new ParseName("lm2").qualifiesAccess(new ParseName(varName)))
+                    );
+                    adStmts.add(copy);
+                }
+                Stmt forStmt = getLayerCopyForStmt(specTypeName, spec.getID());
+                adStmts.add(forStmt);
+            }
+
+        }
+
+        AdviceDecl ad = new AdviceDecl(
+                              new Modifiers(),
+                              new AfterSpec(getParameters()),
+                              getPointcutExpr().rmvMonitor(),
+                              new List(),
+                              new Block(adStmts));
+        retval.add(ad);
+    }
+
+    private Stmt SubscribeDecl.getLayerCopyForStmt(String typeName, String id) {
+        Stmt forInit = new VarDeclStmt(
+                            new Modifiers(),
+                            new PrimitiveTypeAccess("int"),
+                            new List().add(new VariableDecl(
+                                "iter",
+                                new List(),
+                                new Opt(new IntegerLiteral("0")))));
+//        Expr forCond = new ParseName("iter").qualifiesAccess(new MethodAccess("hasNext", new List()));
+        Expr forCond = new LTExpr(new ParseName("iter"), new ParseName("lm2").qualifiesAccess(new ParseName("ct")));
+        List<Stmt> forBodies = new List<Stmt>();
+        Stmt forStmt = new ForStmt(new List().add(forInit), new Opt(forCond), new List().add(new ExprStmt(new PostIncExpr(new ParseName("iter")))), new Block(forBodies));
+
+        Stmt next = new VarDeclStmt(
+                         new Modifiers(),
+                         new ParseName("Object"),
+                         new List().add(new VariableDecl(
+                             "o",
+                             new List(),
+                             new Opt(new ParseName("lm2").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("iter")))))));
+//                             new Opt(new ParseName("iter").qualifiesAccess(new MethodAccess("next", new List()))))));
+        forBodies.add(next);
+
+        Program prog = getProgram();
+        ClassDecl cDecl = prog.getClassDecl(typeName);
+        if (cDecl != null) {
+            Vector<String> layerNames = cDecl.getAllLayerNames();
+            Iterator<String> iter = layerNames.iterator();
+            if (iter.hasNext()) {
+                String layerName = iter.next();
+                Expr ifCond = new InstanceOfExpr(new ParseName("o"), new ParseName("GlobalLayerManager").qualifiesAccess(new ParseName("Layer$" + layerName)));
+                Stmt thenStmt = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt()))));
+                Stmt elseStmt = getLayerForInternal(iter, id);
+                Stmt ifStmt = new IfStmt(ifCond, thenStmt, elseStmt != null ? new Opt(elseStmt) : new Opt());
+                forBodies.add(ifStmt);
+            }
+        }
+        return forStmt;
+    }
+
+    private IfStmt SubscribeDecl.getLayerForInternal(Iterator<String> iter, String id) {
+        if (iter.hasNext()) {
+            String layerName = iter.next();
+            Expr ifCond = new InstanceOfExpr(new ParseName("o"), new ParseName("GlobalLayerManager").qualifiesAccess(new ParseName("Layer$" + layerName)));
+            Stmt thenStmt = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt()))));
+            Stmt elseStmt = getLayerForInternal(iter, id);
+            return new IfStmt(ifCond, thenStmt, elseStmt != null ? new Opt(elseStmt) : new Opt());
+        } else {
+            return null;
+        }
+    }
+
+}

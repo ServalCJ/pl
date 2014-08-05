@@ -1,0 +1,167 @@
+/*
+ * Javanese transformation to AspectJ
+ *  global monitor manipulation
+ * Copyright (C) Tetsuo Kamina, 2013-2014
+ */
+
+aspect GlobalMonitor {
+
+  public TypeAccess GlobalMonitorDecl.getMonitorType(String name) {
+    return new TypeAccess("", "GlobalMonitor");
+  }
+
+  protected void GlobalMonitorDecl.prepareMonitorMap(List<BodyDecl> newBody) {
+    // for public static HashMap map;
+    Access mapType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("HashMap"));
+    VariableDecl map = new VariableDecl("map", new List(), new Opt());
+    FieldDecl mapDecl = new FieldDecl(
+                              new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))), 
+                              mapType,
+                              new List().add(map)
+    );
+    newBody.add(mapDecl);
+
+    // for private static Object _monitorkey
+    VariableDecl key = new VariableDecl("_monitorkey", new List(), new Opt());
+    FieldDecl keyDecl = new FieldDecl(
+                              new Modifiers(new List().add(new Modifier("private")).add(new Modifier("static"))), 
+                              new ParseName("Object"),
+                              new List().add(key)
+    );
+    newBody.add(keyDecl);
+
+    // for private static GlobalLayerManager _glm;
+    VariableDecl glm = new VariableDecl("_glm", new List(), new Opt());
+    FieldDecl glmDecl = new FieldDecl(
+                              new Modifiers(new List().add(new Modifier("private")).add(new Modifier("static"))),
+                              new ParseName("GlobalLayerManager"),
+                              new List().add(glm)
+    );
+    newBody.add(glmDecl);
+ 
+    // generating static initializer..
+    List<Stmt> stmts = new List<Stmt>();
+    stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("map"), new ClassInstanceExpr((Access)mapType.fullCopy(), new List(), new Opt()))));
+    stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("_monitorkey"), new ClassInstanceExpr(new ParseName("Object"), new List(), new Opt()))));
+
+    List<Expr> args = new List<Expr>().add(new ParseName("_monitorkey")).add(new ClassInstanceExpr(new ParseName("GlobalMonitor"), new List(), new Opt()));
+    stmts.add(new ExprStmt(new ParseName("map").qualifiesAccess(new MethodAccess("put", args))));
+    stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("_glm"), new NullLiteral("null"))));
+
+    StaticInitializer clInit = new StaticInitializer(new Block(stmts));
+    newBody.add(clInit);
+  }
+
+  public java.util.Vector<String> GlobalMonitorDecl.getTargetTypes() {
+    java.util.Vector<String> retval = new java.util.Vector<String>();
+    for (java.util.Iterator<SubscribeDecl> iter = rest.iterator(); iter.hasNext(); ) {
+      SubscribeDecl sdecl = iter.next();
+      List<ParameterDeclaration> params = sdecl.getParameterList();
+      for (int i=0; i<params.getNumChild(); i++) {
+        ParameterDeclaration p = params.getChildNoTransform(i);
+        String typeName = ((TypeAccess)p.getTypeAccess()).getID();
+        if (!retval.contains(typeName))
+          retval.add(((TypeAccess)p.getTypeAccess()).getID());
+      }
+    }
+    return retval;
+  }
+
+  private String GlobalMonitorDecl.getSimpleName(String qName) {
+    String[] splitted = qName.split("\\.", 0);
+    if (splitted.length < 1) return qName;
+    return splitted[splitted.length - 1];
+  }
+
+  private Access GlobalMonitorDecl.getPackageAccess(String qName) {
+    String[] splitted = qName.split("\\.", 0);
+    Access access = null;
+    if (splitted.length > 1) {
+      access = new ParseName(splitted[0]);
+    }
+    for (int i=1; i<splitted.length-1; i++) {
+      access = access.qualifiesAccess(new ParseName(splitted[i]));
+    }
+    return access;
+  }
+
+  public void GlobalMonitorDecl.insertSubscribeDecl(Program prog) {
+    java.util.Vector<String> glClasses = new java.util.Vector<String>();
+    for (java.util.Iterator<ActivateDecl> iter = getActivateDecls().iterator(); iter.hasNext(); ) {
+      ActivateDecl aDecl = iter.next();
+      java.util.Vector<String> tmp = prog.getGlobalLayerClasses(aDecl.getID());
+      for (java.util.Iterator<String> it2 = tmp.iterator(); it2.hasNext(); ) {
+        String qName = it2.next();
+        String name = getSimpleName(qName);
+        if (!glClasses.contains(name)) {
+          Access access = getPackageAccess(qName);
+          if (access != null && (!(access instanceof ParseName) || (access instanceof ParseName && !((ParseName)access).getID().equals("")))) { //&& ((access instanceof ParseName) && !((ParseName)access).getID().equals(""))) {
+            CompilationUnit cu = (CompilationUnit)getParent().getParent();
+            cu.getImportDecls().add(new SingleTypeImportDecl(access.qualifiesAccess(new ParseName(name))));
+          }
+          glClasses.add(name);
+        }
+      }
+    }
+
+    if (!glClasses.contains("GlobalLayerManager")) glClasses.add("GlobalLayerManager");
+
+    for (java.util.Iterator<String> i = glClasses.iterator(); i.hasNext(); ) {
+      String className = i.next();
+      PointcutExpr exec = new ExecutionPointcutExpr(
+         new ConstructorPattern(new List(),
+                     new DotNamePattern(new SimpleNamePattern(className),
+                                        new SimpleNamePattern("<init>")),
+                                new List().add(new WildcardFormalPattern()),
+                                new List()));
+      PointcutExpr target = new TargetPointcutExpr(new NameBindingPattern(new ExplicitTypeNamePattern(new ParseName("t"))));
+      PointcutExpr pc = new AndPointcutExpr(exec,target);
+      ParameterDeclaration param = new ParameterDeclaration(new ParseName(className), "t");
+      SubscribeDecl subscribe = new SubscribeDecl(
+                            new List().add(param),
+                            pc,
+                            new List().add(new Subscribe("t"))
+                            );
+//      getBodyDecls().add(subscribe);
+      rest.add(subscribe);
+    }
+  }
+
+  public java.util.Vector<String> Program.getGlobalLayerClasses(String layerName) {
+    java.util.Vector<String> retval = new java.util.Vector<String>();
+    List<CompilationUnit> units = getCompilationUnits();
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      String packageName = cu.getPackageDecl();
+      List<TypeDecl> decls = cu.getTypeDeclList();
+      for (int j=0; j<decls.getNumChild(); j++) {
+        TypeDecl decl = decls.getChildNoTransform(j);
+        if (decl instanceof ClassDecl) {
+          ClassDecl cDecl = (ClassDecl)decl;
+          for (int k=0; k<cDecl.getBodyDecls().getNumChild(); k++) {
+            BodyDecl body = cDecl.getBodyDecls().getChildNoTransform(k);
+            if (body instanceof LayerDecl && ((LayerDecl)body).getID().equals(layerName)) {
+              if (!retval.contains(cDecl.getID())) {
+                  retval.add(packageName + "." + cDecl.getID());
+              }
+            }
+          }
+        }
+      }
+    }
+    return retval;
+  }
+
+  public ClassDecl GlobalMonitorDecl.generateGlobalLayerManager(Program prog) {
+    List<BodyDecl> bodies = new List<BodyDecl>();
+    Vector<String> layers = prog.getAllLayerNames();
+    Iterator<String> iter = layers.iterator();
+    while (iter.hasNext()) {
+      String layerName = iter.next();
+      LayerDecl layer = new LayerDecl(layerName, new List());
+      bodies.add(layer);
+    }
+    return new ClassDecl(new Modifiers(), "GlobalLayerManager", new Opt(), new List(), bodies);
+  }
+
+}

@@ -1,0 +1,39 @@
+/*
+ * Global declarations for Javanese translation
+ * Copyright (C) Tetsuo Kamina, 2012-2013
+ */
+
+import java.util.Vector;
+import java.util.Hashtable;
+
+aspect GlobalDecls {
+
+    /*
+     * A table to remember all "if-expressions" of context declarations
+     * in the program.
+     */
+    public static Vector<IfCondPair> Program.IFPCTABLE = new Vector<IfCondPair>();
+
+    /*
+     * A table to remember all "cflow-expressions" of context declarations
+     * in the program.
+     */
+    public static Vector<CflowPair> Program.CFLOWPCTABLE = new Vector<CflowPair>();
+
+    /*
+     * The unique "magic number" for each context, which is used to avoid
+     * the double application of advice code when the active and until
+     * advices from the same context are applied to the same join point.
+     */
+    public static int Program.currentMagicNumber = 0;
+
+    public static Vector<PrePair> Program.PRETABLE = new Vector<PrePair>();
+
+    /*
+     * A counter for automatically generated context declarations.
+     */
+    public static int Program.contextCounter = 0;
+
+    public static Hashtable<String,String> Program.monitorInstanceMapping = new Hashtable<String,String>();
+
+}

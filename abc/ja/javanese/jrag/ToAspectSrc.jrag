@@ -1,0 +1,417 @@
+/*
+ * Generating translated AspectJ source files.
+ * Copyright (C) Tetsuo Kamina, 2013
+ */
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+
+aspect ToAspectSrc {
+
+    public void Program.storeGeneratedSrc() {
+        List<CompilationUnit> units = getCompilationUnits();
+        for (int i=0; i<units.getNumChild(); i++) {
+            CompilationUnit unit = units.getChildNoTransform(i);
+            if (unit.fromSource()) {
+                unit.storeGeneratedSrc();
+            }
+        }
+    }
+
+    public void CompilationUnit.storeGeneratedSrc() {
+        String pathName = "aspectsrc" + File.separatorChar + relativeName();
+        char[] sepStr = {File.separatorChar};
+        String[] path = pathName.split(new String(sepStr), 0);
+        try {
+            if (path.length > 1) {
+                String dirName = path[0];
+                File dir = new File(dirName);
+                if (! dir.exists()) dir.mkdir();
+                for (int i=1; i<path.length-1; i++) {
+                    dirName = dirName + File.separatorChar + path[i];
+                    dir = new File(dirName);
+                    if (!dir.exists()) dir.mkdir();
+                }
+            }
+
+            File file = new File(pathName.replaceAll("\\.jvn", ".java"));
+            FileWriter writer = new FileWriter(file);
+
+            StringBuffer buf = new StringBuffer();
+            toString(buf);
+
+            writer.write(buf.toString());
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void LayerDecl.toString(StringBuffer buf) { }
+
+    public void PointcutDecl.toString(StringBuffer buf) {
+        buf.append(" pointcut ");
+        getModifiers().toString(buf);
+        buf.append(getID() + "(");
+        if (getNumParameter() > 0) {
+            getParameter(0).toString(buf);
+            for (int i=1; i<getNumParameter(); i++) {
+                buf.append(",");
+                getParameter(i).toString(buf);
+            }
+        }
+        buf.append("): ");
+        getPointcutExpr().toString(buf);
+        buf.append(";\n");
+    }
+
+    public void AdviceDecl.toString(StringBuffer buf) {
+        getModifiers().toString(buf);
+        getAdviceSpec().toString(buf);
+        getPointcutExpr().toString(buf);
+        if (getNumException() > 0) {
+            buf.append(" throws ");
+            getException(0).toString(buf);
+            for (int i=1; i< getNumException(); i++) {
+                buf.append(", ");
+                getException(i).toString(buf);
+            }
+        }
+        getBlock().toString(buf);
+    }
+
+    public void AdviceSpec.toString(StringBuffer buf) {
+        buf.append("(");
+        if (getNumParameter() > 0) {
+            getParameter(0).toString(buf);
+            for (int i=1; i<getNumParameter(); i++) {
+                buf.append(", ");
+                getParameter(i).toString(buf);
+            }
+        }
+        buf.append("): ");
+    }
+
+    public void BeforeSpec.toString(StringBuffer buf) {
+        buf.append(" before ");
+        super.toString(buf);
+    }
+
+    public void AfterSpec.toString(StringBuffer buf) {
+        buf.append(" after ");
+        super.toString(buf);
+    }
+
+    public void AroundSpec.toString(StringBuffer buf) {
+        getTypeAccess().toString(buf);
+        buf.append(" around ");
+        super.toString(buf);
+    }
+
+    public void PointcutExpr.toString(StringBuffer buf) { }
+
+    public void OrPointcutExpr.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append(" || ");
+        getRhs().toString(buf);
+    }
+
+    public void AndPointcutExpr.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append(" && ");
+        getRhs().toString(buf);
+    }
+
+    public void NegPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" !");
+        getPointcutExpr().toString(buf);
+    }
+
+    public void CallPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" call(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void ExecutionPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" execution(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void InitializationPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" initialization(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void PreInitializationPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" preinitialization(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void StaticInitializationPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" staticinitialization(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void GetPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" get(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void SetPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" set(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void HandlerPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" handler(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void AdviceExecutionPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" adviceexecution() ");
+    }
+
+    public void WithinPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" within(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void WithinCodePointcutExpr.toString(StringBuffer buf) {
+        buf.append(" withincode(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void CflowPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" cflow(");
+        getPointcut().toString(buf);
+        buf.append(") ");
+    }
+
+    public void CflowBelowPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" cflowbelow(");
+        getPointcut().toString(buf);
+        buf.append(") ");
+    }
+
+    public void IfPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" if(");
+        getExpr().toString(buf);
+        buf.append(") ");
+    }
+
+    public void ThisPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" this(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void TargetPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" target(");
+        getPattern().toString(buf);
+        buf.append(") ");
+    }
+
+    public void ArgsPointcutExpr.toString(StringBuffer buf) {
+        buf.append(" args(");
+        if (getNumPattern() > 0) {
+            getPattern(0).toString(buf);
+            for (int i=1; i<getNumPattern(); i++) {
+                buf.append(",");
+                getPattern(i).toString(buf);
+            }
+        }
+        buf.append(") ");
+    }
+
+    public void NamedPointcutExpr.toString(StringBuffer buf) {
+        getName().toString(buf);
+        buf.append("(");
+        if (getNumPattern() > 0) {
+            getPattern(0).toString(buf);
+            for (int i=1; i<getNumPattern(); i++) {
+                buf.append(",");
+                getPattern(i).toString(buf);
+            }
+        }
+        buf.append(") ");
+    }
+
+    public void Pattern.toString(StringBuffer buf) { }
+
+    public void AndPattern.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append(" && ");
+        getRhs().toString(buf);
+    }
+
+    public void OrPattern.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append(" || ");
+        getRhs().toString(buf);
+    }
+
+    public void NegPattern.toString(StringBuffer buf) {
+        buf.append(" !");
+        getPattern().toString(buf);
+    }
+
+    public void UniversalNegPattern.toString(StringBuffer buf) {
+        buf.append(" !");
+        getPattern().toString(buf);
+    }
+
+    public void SimpleNamePattern.toString(StringBuffer buf) {
+        if (getPattern().equals("<init>")) {
+            buf.append("new");
+        } else {
+            buf.append(getPattern());
+        }
+    }
+
+    public void DotNamePattern.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append(".");
+        getRhs().toString(buf);
+    }
+
+    public void DotDotNamePattern.toString(StringBuffer buf) {
+        getLhs().toString(buf);
+        buf.append("..");
+        getRhs().toString(buf);
+    }
+
+    public void TypeDotNamePattern.toString(StringBuffer buf) {
+        buf.append(" (");
+        getLhs().toString(buf);
+        buf.append(").");
+        getRhs().toString(buf);
+    }
+
+    public void ExplicitTypeNamePattern.toString(StringBuffer buf) {
+        getAccess().toString(buf);
+    }
+
+    public void SubtypeNamePattern.toString(StringBuffer buf) {
+        getPattern().toString(buf);
+        buf.append("+");
+    }
+
+    public void ArraytypeNamePattern.toString(StringBuffer buf) {
+        getPattern().toString(buf);
+        for (int i=0; i<getNumDims(); i++) {
+            getDims(i).toString(buf);
+        }
+    }
+
+    public void ModifierPattern.toString(StringBuffer buf) {
+        getModifier().toString(buf);
+    }
+
+    public void NegModifierPattern.toString(StringBuffer buf) {
+        buf.append(" !");
+        super.toString(buf);
+    }
+
+    public void MemberPattern.toString(StringBuffer buf) { }
+
+    refine PatternsCodegen public void MethodPattern.toString(StringBuffer buf) {
+        for (int i=0; i<getNumModifierPattern(); i++) {
+            getModifierPattern(i).toString(buf);
+        }
+        getReturnTypePattern().toString(buf);
+        buf.append(" ");
+        getMemberNamePattern().toString(buf);
+        buf.append("(");
+        if (getNumFormalPattern() > 0) {
+            getFormalPattern(0).toString(buf);
+            for (int i=1; i< getNumFormalPattern(); i++) {
+                buf.append(", ");
+                getFormalPattern(i).toString(buf);
+            }
+        }
+        buf.append(") ");
+        if (getNumThrowsPattern() > 0) {
+            buf.append("throws ");
+            getThrowsPattern(0).toString(buf);
+            for (int i=1; i<getNumThrowsPattern(); i++) {
+                buf.append(", ");
+                getThrowsPattern(i).toString(buf);
+            }
+        }
+    }
+
+    refine PatternsCodegen public void ConstructorPattern.toString(StringBuffer buf) {
+        for (int i=0; i<getNumModifierPattern(); i++) {
+            getModifierPattern(i).toString(buf);
+        }
+        getMemberNamePattern().toString(buf);
+        buf.append("(");
+        if (getNumFormalPattern() > 0) {
+            getFormalPattern(0).toString(buf);
+            for (int i=1; i<getNumFormalPattern(); i++) {
+                buf.append(", ");
+                getFormalPattern(i).toString(buf);
+            }
+        }
+        buf.append(") ");
+        if (getNumThrowsPattern() > 0) {
+            buf.append("throws ");
+            getThrowsPattern(0).toString(buf);
+            for (int i=1; i<getNumThrowsPattern(); i++) {
+                buf.append(", ");
+                getFormalPattern(i).toString(buf);
+            }
+        }
+    }
+
+    refine PatternsCodegen public void FieldPattern.toString(StringBuffer buf) {
+        for (int i=0; i<getNumModifierPattern(); i++) {
+            getModifierPattern(i).toString(buf);
+        }
+        getTypePattern().toString(buf);
+        buf.append(" ");
+        getMemberNamePattern().toString(buf);
+    }
+
+    public void FormalPattern.toString(StringBuffer buf) { }
+
+    public void WildcardFormalPattern.toString(StringBuffer buf) {
+        buf.append("..");
+    }
+
+    public void ConcreteFormalPattern.toString(StringBuffer buf) {
+        getPattern().toString(buf);
+    }
+
+    public void BindingPattern.toString(StringBuffer buf) { }
+
+    public void StarBindingPattern.toString(StringBuffer buf) {
+        buf.append("*");
+    }
+
+    public void DotDotBindingPattern.toString(StringBuffer buf) {
+        buf.append("..");
+    }
+
+    public void NameBindingPattern.toString(StringBuffer buf) {
+        getPattern().toString(buf);
+    }
+
+    public void PointcutAccess.toString(StringBuffer buf) {
+        buf.append(getID());
+    }
+
+    public void ActivateBlock.toString(StringBuffer buf) {}
+    public void DeactivateBlock.toString(StringBuffer buf) {}
+}

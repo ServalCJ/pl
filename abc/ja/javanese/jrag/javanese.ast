@@ -1,0 +1,60 @@
+/*
+ * Abstract syntax for direction declarations
+ */
+MonitorDecl : TypeDecl ::= Modifiers
+                           <ID:String>
+                           Parameter:ParameterDeclaration*
+                           [PerClause]
+                           [SuperMonitorAccess:Access]
+                           BodyDecl*;
+GlobalMonitorDecl : MonitorDecl;
+
+MonitorBodyDecl : BodyDecl;
+
+ContextDecl : MonitorBodyDecl ::= <ID:String> FluentSpec;
+
+abstract FluentSpec;
+ActiveUntilSpec : FluentSpec ::= Active:ActionSpec Until:ActionSpec;
+PointcutSpec : FluentSpec ::= PointcutExpr;
+
+abstract ActionSpec;
+PointcutActionSpec : ActionSpec ::= Parameter:ParameterDeclaration* PointcutExpr;
+AfterActionSpec : PointcutActionSpec;
+BeforeActionSpec : PointcutActionSpec;
+EventActionSpec : ActionSpec ::= EventID*;
+EventID ::= <ID:String>;
+
+ActivateDecl : MonitorBodyDecl ::= <ID:String> ContextCond;
+
+abstract ContextCond;
+AtomCond : ContextCond ::= <Name:String>;
+NotCond : ContextCond ::= ContextCond;
+BinaryCond : ContextCond ::= Left:ContextCond Right:ContextCond;
+AndCond : BinaryCond;
+OrCond : BinaryCond;
+
+SubscribeDecl : MonitorBodyDecl ::= Parameter:ParameterDeclaration*
+                                    PointcutExpr
+                                    SubscribeSpec*;
+
+SubscribeSpec ::= <ID:String>;
+Subscribe : SubscribeSpec;
+Unsubscribe : SubscribeSpec;
+
+MonitorPointcutExpr : PointcutExpr ::= Pattern:BindingPattern;
+
+SubscriberTypesDecl : MonitorBodyDecl ::= SubscriberType*;
+SubscriberType ::= <ID:String>;
+
+/*
+ * Abstract syntax for layer declarations
+ */
+LayerDecl : BodyDecl ::= <ID:String> BodyDecl*;
+
+PartialMethodDecl : MethodDecl;
+BeforePartialMethodDecl : PartialMethodDecl;
+AfterPartialMethodDecl : PartialMethodDecl;
+ActivateBlock : BodyDecl ::= Block;
+DeactivateBlock : BodyDecl ::= Block;
+
+EventMethodDecl : MethodDecl;

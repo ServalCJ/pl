@@ -1,0 +1,184 @@
+/*
+ * Javanese preprocessing
+ * Copyright (C) Tetsuo Kamina, 2013
+ */
+
+import java.util.Vector;
+import java.util.Iterator;
+
+aspect MergeMonitors {
+
+  eq MonitorDecl.getSuperMonitorAccess().nameType() = NameType.TYPE_NAME;
+
+  public boolean MonitorDecl.equals(MonitorDecl m) {
+    return getID().equals(m.getID());
+  }
+
+  private Vector<Vector<MonitorDecl>> Program.monitorChains = new Vector<Vector<MonitorDecl>>();
+
+  private Vector<MonitorDecl> Program.getMonitorChainContaining(MonitorDecl mon) {
+    for (Iterator<Vector<MonitorDecl>> i = monitorChains.iterator(); i.hasNext(); ){
+      Vector<MonitorDecl> chain = i.next();
+      if (chain.contains(mon)) { return chain; }
+    }
+    return null;
+  }
+
+  private boolean Program.notContainsMonitorChains(MonitorDecl mon) {
+    if (getMonitorChainContaining(mon) == null) return true;
+    return false;
+  }
+
+  private void Program.proceedSuperMonitors(MonitorDecl mDecl, Vector<MonitorDecl> chain) {
+    if (mDecl.hasSuperMonitorAccess()) {
+      TypeAccess superAccess = (TypeAccess)mDecl.getSuperMonitorAccess();
+      MonitorDecl superMonitor = (MonitorDecl)superAccess.decl();
+      if (superMonitor != null && notContainsMonitorChains(superMonitor)) {
+        proceedSuperMonitors(superMonitor, chain);
+      } else {
+        putMonitorInChains(superMonitor, chain);
+      }
+    } else {
+      monitorChains.add(chain);
+    }
+  }
+
+  private void Program.putMonitorInChains(MonitorDecl mon, Vector<MonitorDecl> chain) {
+    Vector<MonitorDecl> contains = getMonitorChainContaining(mon);
+    if (contains.lastElement().equals(mon)) {
+      for (Iterator<MonitorDecl> iter = chain.iterator(); iter.hasNext(); ) {
+        contains.add(iter.next());
+      }
+    } else {
+      Vector<MonitorDecl> newChain = new Vector<MonitorDecl>();
+      for (Iterator<MonitorDecl> iter = contains.iterator(); iter.hasNext(); ) {
+        MonitorDecl mon1 = iter.next();
+        if (!mon1.equals(mon)) {
+          newChain.add(mon1);
+        } else {
+          for (Iterator<MonitorDecl> it2 = chain.iterator(); it2.hasNext(); ) {
+            newChain.add(it2.next());
+          }
+          monitorChains.add(newChain);
+          break;
+        }
+      }
+    }
+  }
+
+  private boolean MonitorDecl.overridden = false;
+
+  public boolean MonitorDecl.isOverridden() {
+    return overridden;
+  }
+
+  public void MonitorDecl.setOverridden(boolean val) {
+    overridden = val;
+  }
+
+  private void Program.flatteningMonitorTrees() {
+    List<CompilationUnit> units = getCompilationUnits();
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      if (cu.fromSource()) {
+        List<TypeDecl> decls = cu.getTypeDecls();
+        for (int j=0; j<decls.getNumChild(); j++) {
+          TypeDecl decl = decls.getChildNoTransform(j);
+          if (decl instanceof MonitorDecl) {
+            MonitorDecl mDecl = (MonitorDecl)decl;
+            if (notContainsMonitorChains(mDecl)) {
+              Vector<MonitorDecl> chain = new Vector<MonitorDecl>();
+              chain.add(mDecl);
+              proceedSuperMonitors(mDecl, chain);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  public void Program.mergeMonitors() {
+    flatteningMonitorTrees();
+    for (Iterator<Vector<MonitorDecl>> i = monitorChains.iterator(); i.hasNext(); ) {
+      Vector<MonitorDecl> chain = i.next();
+      MonitorDecl leaf = chain.lastElement();
+      for (int j=chain.size()-2; j>=0; j--) {
+        MonitorDecl node = chain.elementAt(j);
+        node.setOverridden(true);
+        leaf.copyDeclsFromSuper(node);
+      }
+    }
+    finalizeMerging();
+  }
+
+  public void MonitorDecl.copyDeclsFromSuper(MonitorDecl s) {
+    List<BodyDecl> decls = s.getBodyDecls();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof ContextDecl) {
+        String c = ((ContextDecl)decl).getID();
+        if (!declaresContext(c)) getBodyDecls().add(decl);
+      } else if (decl instanceof ActivateDecl) {
+        String a = ((ActivateDecl)decl).getID();
+        if (!declaresActivate(a)) getBodyDecls().add(decl);
+      }
+    }
+  }
+
+  private boolean MonitorDecl.declaresContext(String c) {
+    List<BodyDecl> decls = getBodyDecls();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof ContextDecl) {
+        ContextDecl cDecl = (ContextDecl)decl;
+        if (cDecl.getID().equals(c)) return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean MonitorDecl.declaresActivate(String a) {
+    List<BodyDecl> decls = getBodyDecls();
+    for (int i=0; i<decls.getNumChild(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof ActivateDecl) {
+        ActivateDecl aDecl = (ActivateDecl)decl;
+        if (aDecl.getID().equals(a)) return true;
+      }
+    }
+    return false;
+  }
+
+  public boolean MonitorDecl.declaresSameParameterType(MonitorDecl m) {
+    List<ParameterDeclaration> paramsThis = getParameters();
+    if (paramsThis.getNumChild() > 0) {
+      List<ParameterDeclaration> paramsTarget = m.getParameters();
+      if (paramsTarget.getNumChild() > 0) {
+        ParameterDeclaration paramThis = paramsThis.getChildNoTransform(0);
+        ParameterDeclaration paramTarget = paramsTarget.getChildNoTransform(0);
+        String typeThis = ((TypeAccess)paramThis.getTypeAccess()).getID();
+        String typeTarget = ((TypeAccess)paramTarget.getTypeAccess()).getID();
+        if (typeThis.equals(typeTarget)) return true;
+      }
+    }
+    return false;
+  }
+
+  private void Program.finalizeMerging() {
+    for (int i=0; i<monitorChains.size(); i++) {
+      Vector<MonitorDecl> chain = monitorChains.elementAt(i);
+      MonitorDecl leaf = chain.lastElement();
+      if (!leaf.isOverridden()) {
+        for (int j=i+1; j<monitorChains.size(); j++) {
+          Vector<MonitorDecl> chain2 = monitorChains.elementAt(j);
+          MonitorDecl leaf2 = chain2.lastElement();
+          if (leaf.declaresSameParameterType(leaf2)) {
+            leaf.copyDeclsFromSuper(leaf2);
+            leaf2.setOverridden(true);
+          }
+        }
+      }
+    }
+  }
+
+}
