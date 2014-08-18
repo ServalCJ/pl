@@ -312,28 +312,11 @@ aspect Rewriting {
                 className = className.substring(0,6);
             if (className.equals("Layer$")) {
                 if (!getModifiers().isPrivate())
-                    return true;
+                    return !isActivateBlock();
             }
         }
         return false;
     }
-
-/*
-    rewrite MethodAccess {
-        when(!rewritten && isLayeredMethod())
-        to MethodAccess {
-            List args = getArgs();
-            List newArgs = new List();
-            for (int i=0; i<args.getNumChild(); i++) {
-                newArgs.add(args.getChildNoTransform(i));
-            }
-            newArgs.add(new IntegerLiteral("0"));
-            MethodAccess retval = new MethodAccess(getID(), newArgs);
-            retval.rewritten = true;
-            return retval;
-        }
-    }
-*/
 
     rewrite MethodAccess {
         when(!rewritten && isLayeredMethod())

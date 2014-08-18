@@ -825,28 +825,6 @@ aspect Translate {
 
         lmBodies.add(setActive(lDecl));
         lmBodies.add(setInactive(lDecl));
-        ActivateBlock aBlock = lDecl.getActivateBlock();
-        DeactivateBlock daBlock = lDecl.getDeactivateBlock();
-        if (aBlock != null) {
-          MethodDecl activate = new MethodDecl(
-              new Modifiers(new List()),
-              new PrimitiveTypeAccess("void"),
-              "activate" + lDecl.getID(),
-              new List(),
-              new List(),
-              new Opt(aBlock.getBlock()));
-          lmBodies.add(activate);
-        }
-        if (daBlock != null) {
-          MethodDecl deactivate = new MethodDecl(
-              new Modifiers(new List()),
-              new PrimitiveTypeAccess("void"),
-              "deactivate" + lDecl.getID(),
-              new List(),
-              new List(),
-              new Opt(daBlock.getBlock()));
-          lmBodies.add(deactivate);
-        }
 
         // Generating just once
         if (layerManagerFlag) {
@@ -976,13 +954,6 @@ aspect Translate {
       // generating the template for the concrete LayerManager
       cLayerManager = new ClassDecl(new Modifiers(new List()), "LayerManager$"+getID(), new Opt(new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager"))), new List(), lmBodies);
 
-/*
-      List<BodyDecl> lmBodies2 = cLayerManager.getBodyDecls();
-      Vector<MethodDecl> mdecls = collectCallNext();
-      for (Iterator<MethodDecl> iter = mdecls.iterator(); iter.hasNext(); ) {
-        lmBodies2.add(iter.next());
-      }
-*/
       bodies.add(new MemberClassDecl(cLayerManager));
     }
 
@@ -1006,7 +977,6 @@ aspect Translate {
   private void ClassDecl.insertCallNextCalls(List<Stmt> newStmts, MethodDecl m, int num) {
     VariableDecl iterV = new VariableDecl("iter"+num, new List(), new Opt());
     iterV.setInit(new ParseName("lm").qualifiesAccess(new ParseName("ct")));
-//    iterV.setInit(new IntegerLiteral("0"));
     VarDeclStmt iterD = new VarDeclStmt(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(iterV));
     newStmts.add(iterD);
 
@@ -1015,7 +985,6 @@ aspect Translate {
     if (num == 3) { mName = "after_" + m.getID(); }
 
     Expr cond = new NEExpr(new ParseName("iter"+num), new IntegerLiteral("0"));
-//    Expr cond = new LTExpr(new ParseName("iter"+num), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
     List<Stmt> thenBodyList = new List<Stmt>();
 
     if (!(m.isLayeredMethodVoid() || num == 1 || num == 3)) {
@@ -1058,23 +1027,6 @@ aspect Translate {
     }
 
     newStmts.add(new IfStmt(cond, thenBody, elseBody));
-/*
-    Access callNext = new ParseName("lm").qualifiesAccess(new ParseName(mName));
-    MethodAccess callNextM = new MethodAccess(mName, m.getVars().add(new ParseName("iter"+num)));
-    ((AbstractDot)callNext).replaceLast(callNextM);
-
-    Stmt retStmt = null;
-    if (m.isLayeredMethodVoid() || num == 1 || num == 3) {
-      retStmt = new ExprStmt(callNext);
-    } else {
-      retStmt = new VariableDeclaration(
-                      new Modifiers(new List()),
-                      (Access)m.getTypeAccess().fullCopy(),
-                      "__retval",
-                      new Opt(callNext));
-    }
-    newStmts.add(retStmt);
-*/
   }
 
   public boolean MethodDecl.isLayeredMethodVoid() {
@@ -1131,7 +1083,6 @@ aspect Translate {
   private Block ClassDecl.callNextBody(MethodDecl m) {
     String name = m.getID();
     Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
-//    Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
 
     List<Stmt> tstmts = new List<Stmt>();
     VariableDecl l = new VariableDecl("l", new List(), new Opt());
@@ -1203,20 +1154,20 @@ aspect Translate {
     Expr cond2 = new LogNotExpr(contains);
     Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
     layersAddStmts.add(new ExprStmt(layersAdd));
-    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     if(lDecl.hasActivateBlock()) {
-      layersAddStmts.add(new ExprStmt(new MethodAccess("activate" + layerName, new List())));
+      layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("activate"+layerName, new List()))));
     }
+    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     IfStmt ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
 
     layersAddStmts = new List<Stmt>();
     cond = new LogNotExpr(new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName))));
     Expr layersRem = new MethodAccess("removeLayer", new List().add(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName))));
-    layersAddStmts.add(new ExprStmt(layersRem));
     if (lDecl.hasDeactivateBlock()) {
-      layersAddStmts.add(new ExprStmt(new MethodAccess("deactivate"+layerName, new List())));
+      layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("deactivate"+layerName, new List()))));
     }
+    layersAddStmts.add(new ExprStmt(layersRem));
     ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
 
@@ -1238,10 +1189,10 @@ aspect Translate {
     List<Stmt> layersAddStmts = new List<Stmt>();
     Expr cond = new LogNotExpr(new ParseName(layerName).qualifiesAccess(new ArrayAccess(new ParseName("current"+layerName))));
     Access layersRem = new MethodAccess("removeLayer", new List().add(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName))));
-     layersAddStmts.add(new ExprStmt(layersRem));
     if (lDecl.hasDeactivateBlock()) {
-      layersAddStmts.add(new ExprStmt(new MethodAccess("deactivate"+layerName, new List())));
+      layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("deactivate"+layerName, new List()))));
     }
+    layersAddStmts.add(new ExprStmt(layersRem));
     IfStmt ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
 
@@ -1252,10 +1203,10 @@ aspect Translate {
     Expr cond2 = new LogNotExpr(contains);
     Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
     layersAddStmts.add(new ExprStmt(layersAdd));
-    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     if(lDecl.hasActivateBlock()) {
-      layersAddStmts.add(new ExprStmt(new MethodAccess("activate" + layerName, new List())));
+      layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("activate"+layerName, new List()))));
     }
+    layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
 
@@ -1333,7 +1284,6 @@ aspect Translate {
         callName = name;
       }
       Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
-//      Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
       List<Stmt> tstmts = new List<Stmt>();
       VariableDecl l = new VariableDecl("l", new List(), new Opt());
       Expr cast = new CastExpr(new ParseName("Layers$"+getID()),
@@ -1404,20 +1354,64 @@ aspect Translate {
 
     for (Iterator<MethodDecl> iter = unprovided.iterator(); iter.hasNext(); ) {
       MethodDecl m = iter.next();
-      Block retBlock = callNextBody(m);
+      if (!m.isActivateBlock(lDecl.getID())) {
+        Block retBlock = null;
+        if (!m.isActivateBlock()) {
+          retBlock = callNextBody(m);
+        } else {
+          retBlock = new Block(new List());
+        }
+        MethodDecl mAdded = new MethodDecl(
+                                  (Modifiers)m.getModifiers().fullCopy(),
+                                  (Access)m.getTypeAccess().fullCopy(),
+                                  m.getID(),
+                                  (List)m.getParameters().fullCopy(),
+                                  (List)m.getExceptions().fullCopy(),
+                                  new Opt(retBlock)
+                            );
+        lbodies.add(mAdded);
+      }
+    }
 
-      MethodDecl mAdded = new MethodDecl(
-                                (Modifiers)m.getModifiers().fullCopy(),
-                                (Access)m.getTypeAccess().fullCopy(),
-                                m.getID(),
-                                (List)m.getParameters().fullCopy(),
-                                (List)m.getExceptions().fullCopy(),
-                                new Opt(retBlock)
-                          );
-      lbodies.add(mAdded);
+    ActivateBlock aBlock = lDecl.getActivateBlock();
+    DeactivateBlock daBlock = lDecl.getDeactivateBlock();
+    if (aBlock != null) {
+      MethodDecl activate = new MethodDecl(
+              new Modifiers(new List().add(new Modifier("public"))),
+              new PrimitiveTypeAccess("void"),
+              "activate" + lDecl.getID(),
+              new List(),
+              new List(),
+              new Opt(aBlock.getBlock()));
+      lbodies.add(activate);
+    }
+    if (daBlock != null) {
+      MethodDecl deactivate = new MethodDecl(
+              new Modifiers(new List().add(new Modifier("public"))),
+              new PrimitiveTypeAccess("void"),
+              "deactivate" + lDecl.getID(),
+              new List(),
+              new List(),
+              new Opt(daBlock.getBlock()));
+      lbodies.add(deactivate);
     }
 
     return new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Layer$"+lDecl.getID(), new Opt(), new List().add(new ParseName("Layers$"+getID())), lbodies);
+  }
+
+  public boolean MethodDecl.isActivateBlock() {
+    return getID().length() > 8 && getID().substring(0,8).equals("activate") ? true
+      : getID().length() > 10 && getID().substring(0,10).equals("deactivate") ? true : false;
+  }
+
+  public boolean MethodDecl.isActivateBlock(String layerName) {
+    if (getID().length() > 8 && getID().substring(0,8).equals("activate")) {
+      return getID().substring(8).equals(layerName);
+    } else if (getID().length() > 10 && getID().substring(0,10).equals("deactivate")) {
+      return getID().substring(10).equals(layerName);
+    } else {
+      return false;
+    }
   }
 
   private InterfaceDecl ClassDecl.generateLayersInterface() {
@@ -1430,7 +1424,8 @@ aspect Translate {
       if (!(m.mDecl instanceof BeforePartialMethodDecl) &&
             !(m.mDecl instanceof AfterPartialMethodDecl)) {
         MethodDecl mDecl = new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), m.mDecl.getTypeAccess(), methodName, m.mDecl.getParameters().fullCopy(), m.mDecl.getExceptions(), new Opt());
-        mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+//        if (!mDecl.isActivateBlock())
+          mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
         methodDecls.add(mDecl);
         arounds.add(methodName);
       }
@@ -1473,7 +1468,20 @@ aspect Translate {
     for (int i=0; i<bodies.getNumChild(); i++) {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof LayerDecl && referred.contains(((LayerDecl)bDecl).getID())) {
-        List<BodyDecl> lbodies = ((LayerDecl)bDecl).getBodyDecls();
+        LayerDecl lDecl = (LayerDecl)bDecl;
+/*
+        if (lDecl.hasActivateBlock()) {
+          MethodDecl m = new MethodDecl(new Modifiers(new List()), new PrimitiveTypeAccess("void"), "activate"+lDecl.getID(), new List(), new List(), new Opt(lDecl.getActivateBlock()));
+          MethodItem mItem = new MethodItem(m);
+          if (!retval.contains(mItem)) retval.add(mItem);
+        }
+        if (lDecl.hasDeactivateBlock()) {
+          MethodDecl m = new MethodDecl(new Modifiers(new List()), new PrimitiveTypeAccess("void"), "deactivate"+lDecl.getID(), new List(), new List(), new Opt(lDecl.getDeactivateBlock()));
+          MethodItem mItem = new MethodItem(m);
+          if (!retval.contains(mItem)) retval.add(mItem);
+        }
+*/
+        List<BodyDecl> lbodies = lDecl.getBodyDecls();
         for (int j=0; j<lbodies.getNumChild(); j++) {
           BodyDecl lbDecl = lbodies.getChildNoTransform(j);
           if ((lbDecl instanceof MethodDecl) &&
