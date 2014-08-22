@@ -12,8 +12,11 @@ To build the ServalCJ compiler, follow the instructions:
 
 1. download and extract abc-1.3.0 (including the source code)
 2. copy the source directory of the ServalCJ compiler under the directory abc-1.3.0/
-3. cd abc-1.3.0/javanese
-4. build the compiler using ant
+3. In directories abc/ and abc-ja/, rename ant.settings.template to ant.settings.
+   Check abc/ant.settings and install all the required libraries that are
+   necessary to compile abc.
+4. cd abc-1.3.0/pl
+5. build the compiler using ant
 
 Then, the following command will run the ServalCJ compiler
 
