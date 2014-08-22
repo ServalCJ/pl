@@ -64,7 +64,7 @@ aspect Utility {
 
     public TypeAccess MonitorDecl.getMonitorType(String name) {
         List<ParameterDeclaration> params = getParameters();
-        if (params.getNumChild() > 0) {
+        if (!(this instanceof GlobalMonitorDecl) && params.getNumChild() > 0) {
             String typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
             return new TypeAccess("", "Monitor$" + typeName);
         } else {
@@ -327,6 +327,9 @@ aspect Utility {
         MonitorDecl mDecl = getMonitorDecl(monitorName);
         if (mDecl == null) return null;
         List<ParameterDeclaration> params = mDecl.getParameters();
+        if (mDecl instanceof GlobalMonitorDecl) {
+            return "GlobalMonitor";
+        }
         if (params.getNumChild() > 0) {
             return ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
         }

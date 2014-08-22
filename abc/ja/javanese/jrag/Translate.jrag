@@ -75,7 +75,6 @@ aspect Translate {
             AspectDecl ad = ddecl.toAspectJ();
             ads.add(ad);
             Vector<String> targetTypes = ddecl.getTargetTypes();
-//            ads.add(ddecl.generateMonitorClass(targetTypes, this));
             ddecl.generateMonitorClass(targetTypes, this);
             if (ddecl instanceof GlobalMonitorDecl) {
               ClassDecl glm = ((GlobalMonitorDecl)ddecl).generateGlobalLayerManager(this);
@@ -494,13 +493,17 @@ aspect Translate {
     TypeAccess subscriberType = null;
     String varName = null;
     String typeName = null;
-    if (!(this instanceof GlobalMonitorDecl) && params.getNumChild() > 0) {
+    if ((!(this instanceof GlobalMonitorDecl) && params.getNumChild() > 0)) {
       subscriberType = (TypeAccess)params.getChildNoTransform(0).getTypeAccess();
       typeName = subscriberType.getID();
       varName = params.getChildNoTransform(0).getID();
       cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Monitor$"+subscriberType.getID(), new Opt(), new List(), bodies);
     } else if (this instanceof GlobalMonitorDecl) {
       cDecl = new ClassDecl(new Modifiers(), "GlobalMonitor", new Opt(), new List(), bodies);
+      if (params.getNumChild() > 0) {
+        varName = params.getChildNoTransform(0).getID();
+        typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
+      }
     }
 
     for (Iterator<String> iter = targetTypes.iterator(); iter.hasNext(); ) {
@@ -528,7 +531,7 @@ aspect Translate {
     String monitorName = "GlobalMonitor";
 
     // inserting "dummyConstructor"
-    if (!(this instanceof GlobalMonitorDecl) && subscriberType != null) {
+    if ((!(this instanceof GlobalMonitorDecl) && subscriberType != null)) {
       monitorName = "Monitor$" + subscriberType.getID();
 
       List<Stmt> stmts = new List<Stmt>();
@@ -569,6 +572,42 @@ aspect Translate {
 
       stmts.add(new ReturnStmt(new ParseName("retval")));
 
+      MethodDecl dummy = new MethodDecl(
+                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
+                                 new ParseName(monitorName),
+                                 "dummyConstructor",
+                                 params.fullCopy(),
+                                 new List(),
+                                 new Opt(new Block(stmts)));
+      bodies.add(dummy);
+
+      // dummy constructor for global contextgroup
+    } else if ((this instanceof GlobalMonitorDecl) && getPerClauseOpt().getNumChild() == 0 && params.getNumChild() > 0) {
+      List<Stmt> stmts = new List<Stmt>();
+      VariableDecl aspectVar = new VariableDecl("a", new List(), new Opt());
+      aspectVar.setInit(new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List())));
+      Stmt aspStmt = new VarDeclStmt(
+                             new Modifiers(),
+                             new ParseName(getID()),
+                             new List().add(aspectVar));
+      stmts.add(aspStmt);
+
+      VariableDecl retvalVar = new VariableDecl("retval", new List(), new Opt());
+      retvalVar.setInit(new ClassInstanceExpr(new ParseName("GlobalMonitor"), new List(), new Opt()));
+      Stmt varDecl = new VarDeclStmt(
+                             new Modifiers(),
+                             new ParseName("GlobalMonitor"),
+                             new List().add(retvalVar));
+      stmts.add(varDecl);
+
+      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("target$" + typeName), new ParseName(varName))));
+
+      EQExpr cond = new EQExpr(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("get", new List().add(new ParseName(varName)))), new NullLiteral("null"));
+      List<Stmt> tstmts = new List<Stmt>();
+      tstmts.add(new ExprStmt(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("put", new List().add(new ParseName(varName)).add(new ParseName("retval"))))));
+      tstmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("retval").qualifiesAccess(new ParseName("__monitor")), new ParseName(varName))));
+      stmts.add(new IfStmt(cond, new Block(tstmts), new Opt()));
+      stmts.add(new ReturnStmt(new ParseName("retval")));
       MethodDecl dummy = new MethodDecl(
                                  new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
                                  new ParseName(monitorName),
@@ -1424,8 +1463,7 @@ aspect Translate {
       if (!(m.mDecl instanceof BeforePartialMethodDecl) &&
             !(m.mDecl instanceof AfterPartialMethodDecl)) {
         MethodDecl mDecl = new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), m.mDecl.getTypeAccess(), methodName, m.mDecl.getParameters().fullCopy(), m.mDecl.getExceptions(), new Opt());
-//        if (!mDecl.isActivateBlock())
-          mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
+        mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
         methodDecls.add(mDecl);
         arounds.add(methodName);
       }
@@ -1469,18 +1507,6 @@ aspect Translate {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof LayerDecl && referred.contains(((LayerDecl)bDecl).getID())) {
         LayerDecl lDecl = (LayerDecl)bDecl;
-/*
-        if (lDecl.hasActivateBlock()) {
-          MethodDecl m = new MethodDecl(new Modifiers(new List()), new PrimitiveTypeAccess("void"), "activate"+lDecl.getID(), new List(), new List(), new Opt(lDecl.getActivateBlock()));
-          MethodItem mItem = new MethodItem(m);
-          if (!retval.contains(mItem)) retval.add(mItem);
-        }
-        if (lDecl.hasDeactivateBlock()) {
-          MethodDecl m = new MethodDecl(new Modifiers(new List()), new PrimitiveTypeAccess("void"), "deactivate"+lDecl.getID(), new List(), new List(), new Opt(lDecl.getDeactivateBlock()));
-          MethodItem mItem = new MethodItem(m);
-          if (!retval.contains(mItem)) retval.add(mItem);
-        }
-*/
         List<BodyDecl> lbodies = lDecl.getBodyDecls();
         for (int j=0; j<lbodies.getNumChild(); j++) {
           BodyDecl lbDecl = lbodies.getChildNoTransform(j);

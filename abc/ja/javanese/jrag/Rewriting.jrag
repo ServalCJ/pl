@@ -358,7 +358,8 @@ aspect Rewriting {
         to Access {
             String m = Program.monitorInstanceMapping.get(type().name());
             String monitorArgType = Program.getMonitorArgType(m);
-            Access receiver = new ParseName("Monitor$" + monitorArgType);
+            String typeName = monitorArgType.equals("GlobalMonitor") ? "GlobalMonitor" : "Monitor$" + monitorArgType;
+            Access receiver = new ParseName(typeName);
             Access retval = receiver.qualifiesAccess(new MethodAccess("dummyConstructor", getArgs()));
             return retval;
         }
@@ -385,8 +386,9 @@ aspect Rewriting {
                     (enclosingMethod() != null &&
                      !enclosingMethod().getID().equals("dummyConstructor"))) {
                     String monitorArgType = Program.getMonitorArgType(getID());
-                    Program.monitorInstanceMapping.put("Monitor$" + monitorArgType, getID());
-                    TypeAccess a = new TypeAccess(getPackage(), "Monitor$" + monitorArgType);
+                    String typeName = monitorArgType.equals("GlobalMonitor") ? "GlobalMonitor" : "Monitor$" + monitorArgType;
+                    Program.monitorInstanceMapping.put(typeName, getID());
+                    TypeAccess a = new TypeAccess(getPackage(), typeName);
                     a.generated = true;
                     return a;
                 }
