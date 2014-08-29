@@ -6,7 +6,6 @@
 aspect TranslateSubscribeDecls {
 
     public String PointcutExpr.monitorVarName() {
-//        error("monitor pointcut expression is not used");
         return null;
     }
 
@@ -14,12 +13,7 @@ aspect TranslateSubscribeDecls {
         String left = getLhs().monitorVarName();
         String right = getRhs().monitorVarName();
         if (left != null) {
-            if (right != null) {
-                error("monitor pointcut is used multiple times");
-                return null;
-            } else {
-                return left;
-            }
+            return left;
         } else {
             return right;
         }

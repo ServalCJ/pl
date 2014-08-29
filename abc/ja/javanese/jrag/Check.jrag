@@ -187,6 +187,44 @@ aspect Check {
     }
   }
 
+  public void BinaryPointcutExpr.typeCheckCJ() {
+    String left = getLhs().monitorVarName();
+    String right = getRhs().monitorVarName();
+    if (left != null && right != null)
+      error("monitor pointcut is used multiple times");
+  }
+
+  public void ContextDecl.typeCheckCJ() {
+    FluentSpec fspec = getFluentSpec();
+    if (fspec instanceof ActiveUntilSpec) {
+      ActiveUntilSpec auSpec = (ActiveUntilSpec)fspec;
+      ActionSpec activeSpec = auSpec.getActive();
+      ActionSpec untilSpec = auSpec.getUntil();
+      if (activeSpec instanceof PointcutActionSpec) {
+        PointcutActionSpec paSpec = (PointcutActionSpec)activeSpec;
+        typeCheckCJInternal(paSpec);
+      }
+      if (untilSpec instanceof PointcutActionSpec) {
+        PointcutActionSpec puSpec = (PointcutActionSpec)untilSpec;
+        typeCheckCJInternal(puSpec);
+      }
+    }
+  }
+
+  private void ContextDecl.typeCheckCJInternal(PointcutActionSpec spec) {
+    List<ParameterDeclaration> params = getMonitorParams();
+    for (int i=0; i<params.getNumChildNoTransform(); i++) {
+      ParameterDeclaration p = params.getChildNoTransform(i);
+      String monitorType = ((TypeAccess)p.getTypeAccess()).getID();
+      Vector<String> vec = spec.getPointcutExpr().matchMonitor(monitorType);
+      if (vec.size() == 0) {
+        error("no monitored objects are found at the action specification");
+      } else if (vec.size() > 1) {
+        error("multiple monitored objectss are found at the action specification");
+      }
+    }
+  }
+
   public static Vector<String> Program.cjTypes = new Vector<String>();
 
   public void Program.preprosessServalCJ() {

@@ -22,8 +22,6 @@ aspect TranslateContexts {
 	        ParameterDeclaration p =
                     (ParameterDeclaration)var.iterator().next();
                 senderMap.put(id,((TypeAccess)p.getTypeAccess()).getID());
-            } else if (var.size() > 1) {
-                error("ambiguous event sender: " + id);
             }
         }
     }
@@ -411,9 +409,7 @@ aspect TranslateContexts {
                 ParameterDeclaration p = params.getChildNoTransform(0);
                 verName = p.getID();
                 typeName = ((TypeAccess)p.getTypeAccess()).getID();
-            } //else {
-//                error("unexpected error");
-//            }
+            } 
         } else {
             MonitorDecl m = (MonitorDecl)getParent().getParent();
             List<ParameterDeclaration> params = m.getParameters();

@@ -9,20 +9,10 @@ aspect InferBinding {
     String monitorType = ((TypeAccess)p.getTypeAccess()).getID();
     java.util.Vector<String> retval =
       spec.getPointcutExpr().matchMonitor(monitorType);
-    if (retval.size() == 0) {
-//      System.out.println("Not found");
-      error("no monitors are found at the action specification");
-      return null;
-    }
-    if (retval.size() > 1) {
-//      System.out.println("Too many");
-      error("multiple monitors are found at the action specification");
-    }
     return retval.elementAt(0);
   }
 
   public java.util.Vector<String> PointcutExpr.matchMonitor(String type) {
-    error("unsupported pointcut expression");
     return new java.util.Vector<String>();
   }
 
