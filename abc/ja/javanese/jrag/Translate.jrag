@@ -49,24 +49,20 @@ aspect Translate {
    * The AspectJ's aspect declaration generation part:
    */
   public void Program.toAspectJ() {
-    Program.program = this;
-
     List<CompilationUnit> units = getCompilationUnits();
     List<CompilationUnit> tmp = new List<CompilationUnit>();
     CompilationUnit layerManager = null;
-    for (int i=0; i<units.getNumChild(); i++) {
+    for (int i=0; i<units.getNumChildNoTransform(); i++) {
       CompilationUnit cu = units.getChildNoTransform(i);
       if (cu.fromSource()) {
         List<TypeDecl> decls = cu.getTypeDeclList();
         List<TypeDecl> tmpds = new List<TypeDecl>();
         List<TypeDecl> ads = new List<TypeDecl>();
         Vector<Integer> nums = new Vector<Integer>();
-        for (int j=0; j<decls.getNumChild(); j++) {
+        for (int j=0; j<decls.getNumChildNoTransform(); j++) {
           TypeDecl decl = decls.getChildNoTransform(j);
           if (decl instanceof MonitorDecl) {
             MonitorDecl ddecl = (MonitorDecl)decl;
-            ddecl.rememberCompilationUnit(cu);
-            Program.monitorDecls.add(ddecl);
             if (ddecl instanceof GlobalMonitorDecl) {
               ((GlobalMonitorDecl)ddecl).insertSubscribeDecl(this);
             }
@@ -87,19 +83,19 @@ aspect Translate {
             }
           }
         }
-        for (int j=0; j<tmpds.getNumChild(); j++) {
+        for (int j=0; j<tmpds.getNumChildNoTransform(); j++) {
           decls.removeChild(nums.get(j).intValue()-j);
         }
-        for (int j=0; j<ads.getNumChild(); j++) {
+        for (int j=0; j<ads.getNumChildNoTransform(); j++) {
           decls.add(ads.getChild(j));
         }
       }
     }
-    for (int i=0; i<units.getNumChild(); i++) {
+    for (int i=0; i<units.getNumChildNoTransform(); i++) {
       CompilationUnit cu = units.getChildNoTransform(i);
       if (cu.fromSource()) {
         List<TypeDecl> decls = cu.getTypeDeclList();
-        for (int j=0; j<decls.getNumChild(); j++) {
+        for (int j=0; j<decls.getNumChildNoTransform(); j++) {
           TypeDecl decl = decls.getChildNoTransform(j);
           if (decl instanceof ClassDecl) {
             if (layerManager != null) ((ClassDecl)decl).translateLayers(this);
@@ -141,7 +137,7 @@ aspect Translate {
 
     String varName = null;
     String typeName = null;
-    if (getParameters().getNumChild() > 0) {
+    if (getParameters().getNumChildNoTransform() > 0) {
       ParameterDeclaration p = getParameters().getChildNoTransform(0);
       varName = p.getID();
       typeName = ((TypeAccess)p.getTypeAccess()).getID();
@@ -149,7 +145,7 @@ aspect Translate {
 
     // generating monitor installation from perClause
     Opt o = getPerClauseOpt();
-    if (o.getNumChild() > 0) {
+    if (o.getNumChildNoTransform() > 0) {
       PerClause perC = (PerClause)o.getChildNoTransform(0);
       PointcutExpr pc = null;
       if (perC instanceof PerTarget) {
@@ -197,7 +193,7 @@ aspect Translate {
 
     } 
 
-    for (int i=0; i<body.getNumChild(); i++) {
+    for (int i=0; i<body.getNumChildNoTransform(); i++) {
       BodyDecl bodyD = body.getChildNoTransform(i);
       if (bodyD instanceof MonitorBodyDecl) {
         Program.currentMagicNumber++;
@@ -259,15 +255,14 @@ aspect Translate {
 
     // to obtain all monitors, it firstly gets all compilation units
     List<CompilationUnit> units = getCompilationUnits();
-    for (int i=0; i<units.getNumChild(); i++) {
+    for (int i=0; i<units.getNumChildNoTransform(); i++) {
       CompilationUnit cu = units.getChildNoTransform(i);
       List<TypeDecl> decls = cu.getTypeDeclList();
-      for (int j=0; j<decls.getNumChild(); j++) {
+      for (int j=0; j<decls.getNumChildNoTransform(); j++) {
         TypeDecl decl = decls.getChildNoTransform(j);
         if (decl instanceof MonitorDecl) {
           MonitorDecl ddecl = (MonitorDecl)decl;
           Vector<String> layerNames = getAllLayerNames();
-//          ddecl.insertDummyActivateDecls(layerNames);
 
           Vector<ActivateDecl> layers = ddecl.getActivateDecls();
           for (Iterator<ActivateDecl> iter = layers.iterator(); iter.hasNext(); ) {
@@ -457,12 +452,12 @@ aspect Translate {
   public Vector<String> MonitorDecl.getTargetTypes() {
     Vector<String> retval = new Vector<String>();
     List<BodyDecl> decls = getBodyDecls();
-    for (int i=0; i<decls.getNumChild(); i++) {
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
       BodyDecl body = decls.getChildNoTransform(i);
       if (body instanceof SubscribeDecl) {
         SubscribeDecl sdecl = (SubscribeDecl)body;
         List<ParameterDeclaration> params = sdecl.getParameterList();
-        for (int j=0; j<params.getNumChild(); j++) {
+        for (int j=0; j<params.getNumChildNoTransform(); j++) {
           ParameterDeclaration p = params.getChildNoTransform(j);
           String val = ((TypeAccess)p.getTypeAccess()).getPackage();
           if (val.equals("")) {
@@ -477,7 +472,7 @@ aspect Translate {
       } else if (body instanceof SubscriberTypesDecl) {
         SubscriberTypesDecl stDecl = (SubscriberTypesDecl)body;
         List<SubscriberType> names = stDecl.getSubscriberTypes();
-        for (int j=0; j<names.getNumChild(); j++) {
+        for (int j=0; j<names.getNumChildNoTransform(); j++) {
           SubscriberType name = names.getChildNoTransform(j);
           retval.add(name.getID());
         }
@@ -493,14 +488,14 @@ aspect Translate {
     TypeAccess subscriberType = null;
     String varName = null;
     String typeName = null;
-    if ((!(this instanceof GlobalMonitorDecl) && params.getNumChild() > 0)) {
+    if ((!(this instanceof GlobalMonitorDecl) && params.getNumChildNoTransform() > 0)) {
       subscriberType = (TypeAccess)params.getChildNoTransform(0).getTypeAccess();
       typeName = subscriberType.getID();
       varName = params.getChildNoTransform(0).getID();
       cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Monitor$"+subscriberType.getID(), new Opt(), new List(), bodies);
     } else if (this instanceof GlobalMonitorDecl) {
       cDecl = new ClassDecl(new Modifiers(), "GlobalMonitor", new Opt(), new List(), bodies);
-      if (params.getNumChild() > 0) {
+      if (params.getNumChildNoTransform() > 0) {
         varName = params.getChildNoTransform(0).getID();
         typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
       }
@@ -582,7 +577,7 @@ aspect Translate {
       bodies.add(dummy);
 
       // dummy constructor for global contextgroup
-    } else if ((this instanceof GlobalMonitorDecl) && getPerClauseOpt().getNumChild() == 0 && params.getNumChild() > 0) {
+    } else if ((this instanceof GlobalMonitorDecl) && getPerClauseOpt().getNumChildNoTransform() == 0 && params.getNumChildNoTransform() > 0) {
       List<Stmt> stmts = new List<Stmt>();
       VariableDecl aspectVar = new VariableDecl("a", new List(), new Opt());
       aspectVar.setInit(new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List())));
@@ -689,7 +684,7 @@ aspect Translate {
       MonitorDecl m = a.getEnclosingMonitor();
       if (m != null) {
         List<BodyDecl> decls = m.getBodyDecls();
-        for (int i=0; i<decls.getNumChild(); i++) {
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
           BodyDecl decl = decls.getChildNoTransform(i);
           if (decl instanceof ActivateDecl) {
             ActivateDecl aDecl = (ActivateDecl)decl;
@@ -747,7 +742,7 @@ aspect Translate {
       MonitorDecl m = a.getEnclosingMonitor();
       if (m != null) {
         List<BodyDecl> decls = m.getBodyDecls();
-        for (int i=0; i<decls.getNumChild(); i++) {
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
           BodyDecl decl = decls.getChildNoTransform(i);
           if (decl instanceof ActivateDecl) {
             ActivateDecl aDecl = (ActivateDecl)decl;
@@ -770,7 +765,7 @@ aspect Translate {
   public ActivateBlock LayerDecl.getActivateBlock() {
     ActivateBlock retval = null;
     List<BodyDecl> bodies = getBodyDecls();
-    for (int i=0; i<bodies.getNumChild(); i++) {
+    for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof ActivateBlock) {
         retval = (ActivateBlock)bDecl;
@@ -782,7 +777,7 @@ aspect Translate {
   public DeactivateBlock LayerDecl.getDeactivateBlock() {
     DeactivateBlock retval = null;
     List<BodyDecl> bodies = getBodyDecls();
-    for (int i=0; i<bodies.getNumChild(); i++) {
+    for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof DeactivateBlock) {
         retval = (DeactivateBlock)bDecl;
@@ -807,7 +802,7 @@ aspect Translate {
   public void ClassDecl.removeLayers() {
     List<BodyDecl> decls = getBodyDecls();
     Vector<Integer> nums = new Vector<Integer>();
-    for (int i=0; i<decls.getNumChild(); i++) {
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
       BodyDecl decl = decls.getChildNoTransform(i);
       if (decl instanceof LayerDecl) nums.add(new Integer(i));
     }
@@ -851,19 +846,22 @@ aspect Translate {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof LayerDecl) {
         LayerDecl l = (LayerDecl)bDecl;
-        if (unusedLayers.contains(l.getID()))
-          thisClassLayers.add(l.getID());
+        thisClassLayers.add(l.getID());
       }
     }
 
     for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
-      if (bDecl instanceof LayerDecl && unusedLayers.contains(((LayerDecl)bDecl).getID())) {
+      if (bDecl instanceof LayerDecl){
         LayerDecl lDecl = (LayerDecl)bDecl;
-        unusedLayers.remove(lDecl.getID());
 
-        lmBodies.add(setActive(lDecl));
-        lmBodies.add(setInactive(lDecl));
+        if (unusedLayers.contains(lDecl.getID())) {
+          lmBodies.add(setActive(lDecl));
+          lmBodies.add(setInactive(lDecl));
+        } else {
+          lmBodies.add(setActiveDummy(lDecl.getID()));
+          lmBodies.add(setInactiveDummy(lDecl.getID()));
+        }
 
         // Generating just once
         if (layerManagerFlag) {
@@ -970,13 +968,15 @@ aspect Translate {
         }
 
         // Generating for each layer
+        if (unusedLayers.contains(lDecl.getID())) {
         add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
 
         VariableDecl layer = new VariableDecl("instanceLayer$"+lDecl.getID(), new List(), new Opt());
         layer.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt())));
         FieldDecl layerDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("private"))), new ParseName("Layer$"+lDecl.getID()), new List().add(layer));
         add.add(layerDecl);
-
+        }
+        unusedLayers.remove(lDecl.getID());
       }
     }
 
@@ -989,7 +989,7 @@ aspect Translate {
     }
 
     //Now, finalizing the generation of the concrete LayerManager
-    if (lmBodies.getNumChild() > 0) {
+    if (lmBodies.getNumChildNoTransform() > 0) {
       // generating the template for the concrete LayerManager
       cLayerManager = new ClassDecl(new Modifiers(new List()), "LayerManager$"+getID(), new Opt(new ParseName("javanese").qualifiesAccess(new ParseName("generated")).qualifiesAccess(new ParseName("LayerManager"))), new List(), lmBodies);
 
@@ -1004,7 +1004,7 @@ aspect Translate {
   public Vector<String> InterfaceDecl.getMethodNames() {
     Vector<String> retval = new Vector<String>();
     List<BodyDecl> decls = getBodyDecls();
-    for (int i=0; i<decls.getNumChild(); i++) {
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
       BodyDecl decl = decls.getChildNoTransform(i);
       if (decl instanceof MethodDecl) {
         retval.add(((MethodDecl)decl).getID());
@@ -1079,7 +1079,7 @@ aspect Translate {
   public List MethodDecl.getVars() {
     List<ParameterDeclaration> params = getParameters();
     List<ParseName> names = new List<ParseName>();
-    for (int i=0; i<params.getNumChild(); i++) {
+    for (int i=0; i<params.getNumChildNoTransform(); i++) {
       ParameterDeclaration p = params.getChildNoTransform(i);
       names.add(new ParseName(p.getID()));
     }
@@ -1089,7 +1089,7 @@ aspect Translate {
   public List MethodDecl.getVars1() {
     List<ParameterDeclaration> params = getParameters();
     List<ParseName> names = new List<ParseName>();
-    for (int i=0; i<params.getNumChild() -1; i++) {
+    for (int i=0; i<params.getNumChildNoTransform() -1; i++) {
       ParameterDeclaration p = params.getChildNoTransform(i);
       names.add(new ParseName(p.getID()));
     }
@@ -1133,7 +1133,7 @@ aspect Translate {
 
     List vars = new List();
     int i=0;
-    for (; i<m.getParameters().fullCopy().getNumChild()-1; i++) {
+    for (; i<m.getParameters().fullCopy().getNumChildNoTransform()-1; i++) {
       vars.add(new ParseName(((ParameterDeclaration)m.getParameters().getChildNoTransform(i)).getID()));
     }
     vars.add((Expr)m.getVars().getChildNoTransform(i));
@@ -1278,7 +1278,7 @@ aspect Translate {
     Vector<String> names = new Vector<String>();
     Vector<MethodDecl> tmp = new Vector<MethodDecl>();
     Vector<MethodDecl> todo = new Vector<MethodDecl>();
-    for (int i=0; i<decls.getNumChild(); i++) {
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
       BodyDecl decl = decls.getChildNoTransform(i);
       if (decl instanceof BeforePartialMethodDecl ||
            decl instanceof AfterPartialMethodDecl) {
@@ -1292,7 +1292,7 @@ aspect Translate {
     for (int i=0; i<names.size(); i++) {
       String name = names.elementAt(i);
       boolean found = false;
-      for (int j=0; j<decls.getNumChild(); j++) {
+      for (int j=0; j<decls.getNumChildNoTransform(); j++) {
         BodyDecl decl = decls.getChildNoTransform(j);
         if (!(decl instanceof BeforePartialMethodDecl) &&
              !(decl instanceof AfterPartialMethodDecl)) {
@@ -1309,7 +1309,7 @@ aspect Translate {
       String name = m.getID();
       List args = new List();
       List<ParameterDeclaration> params = m.getParameters();
-      for (int i=0; i<params.getNumChild(); i++) {
+      for (int i=0; i<params.getNumChildNoTransform(); i++) {
         ParameterDeclaration param = params.getChildNoTransform(i);
         args.add(new ParseName(param.getID()));
       }
@@ -1349,13 +1349,13 @@ aspect Translate {
     insertMissingAroundMethods(lDecl);
     List<BodyDecl> lbodies = lDecl.getBodyDecls();
 
-    for (int i=0; i<lbodies.getNumChild(); i++) {
+    for (int i=0; i<lbodies.getNumChildNoTransform(); i++) {
       BodyDecl lbDecl = lbodies.getChildNoTransform(i);
       if (lbDecl instanceof MethodDecl) {
         MethodDecl mDecl = (MethodDecl)lbDecl;
         List args = new List();
         List<ParameterDeclaration> params = mDecl.getParameters();
-        for (int j=0; j<params.getNumChild(); j++) {
+        for (int j=0; j<params.getNumChildNoTransform(); j++) {
           ParameterDeclaration param = params.getChildNoTransform(j);
           args.add(new ParseName(param.getID()));
         }
@@ -1375,12 +1375,12 @@ aspect Translate {
     // searching unprovided partial methods..
     List<BodyDecl> inBodies = layerInterface.getBodyDecls();
     Vector<MethodDecl> unprovided = new Vector<MethodDecl>();
-    for (int i=0; i<inBodies.getNumChild(); i++) {
+    for (int i=0; i<inBodies.getNumChildNoTransform(); i++) {
       BodyDecl inBody = inBodies.getChildNoTransform(i);
       if (inBody instanceof MethodDecl) {
         MethodDecl m = (MethodDecl)inBody;
         boolean found = false;
-        for (int j=0; j<lbodies.getNumChild(); j++) {
+        for (int j=0; j<lbodies.getNumChildNoTransform(); j++) {
           BodyDecl lBody = lbodies.getChildNoTransform(j);
           if (lBody instanceof MethodDecl &&
               m.getID().equals(((MethodDecl)lBody).getID())) {
@@ -1503,12 +1503,12 @@ aspect Translate {
     Vector<String> referred = Program.program.getAllReferredLayerNames();
     Vector<MethodItem> retval = new Vector<MethodItem>();
     List<BodyDecl> bodies = getBodyDecls();
-    for (int i=0; i<bodies.getNumChild(); i++) {
+    for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
       BodyDecl bDecl = bodies.getChildNoTransform(i);
       if (bDecl instanceof LayerDecl && referred.contains(((LayerDecl)bDecl).getID())) {
         LayerDecl lDecl = (LayerDecl)bDecl;
         List<BodyDecl> lbodies = lDecl.getBodyDecls();
-        for (int j=0; j<lbodies.getNumChild(); j++) {
+        for (int j=0; j<lbodies.getNumChildNoTransform(); j++) {
           BodyDecl lbDecl = lbodies.getChildNoTransform(j);
           if ((lbDecl instanceof MethodDecl) &&
                ((MethodDecl)lbDecl).isPublic()) {
@@ -1530,7 +1530,7 @@ aspect Translate {
     List<BodyDecl> bodies = getBodyDecls();
     for (Iterator<MethodItem> iter = ms.iterator(); iter.hasNext(); ) {
       MethodItem lm = iter.next();
-      for (int i=0; i<bodies.getNumChild(); i++) {
+      for (int i=0; i<bodies.getNumChildNoTransform(); i++) {
         BodyDecl bDecl = bodies.getChildNoTransform(i);
         if (bDecl instanceof MethodDecl) {
           MethodDecl m = (MethodDecl)bDecl;

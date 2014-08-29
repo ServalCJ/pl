@@ -147,8 +147,23 @@ public class CompileSequence extends abc.ja.CompileSequence {
             throw new CompilerFailedException("There were errors.");
         }
       }
-      program.processAnonymousContexts();
-      //      program.mergeMonitors();
+
+      program.preprosessServalCJ();
+
+      // ServalCJ error checking
+      ArrayList errorsCJ = new ArrayList();
+      program.errorCheckCJ(errorsCJ);
+      if(!errorsCJ.isEmpty()) {
+	  Collections.sort(errorsCJ);
+	  for (Iterator iter = errorsCJ.iterator(); iter.hasNext(); ) {
+	      Problem p = (Problem)iter.next();
+	      addError(p);
+	  }
+	  throw new CompilerFailedException("There were errors.");
+      }
+
+      // performing translation from ServalCJ to AspectJ
+      //      program.processAnonymousContexts();
       program.toAspectJ();
       if (toSrc) {
 	  program.storeGeneratedSrc();

@@ -99,10 +99,10 @@ aspect Utility {
     public Vector<LayerDecl> Program.getAllLayers() {
         Vector<LayerDecl> retval = new Vector<LayerDecl>();
         List<CompilationUnit> units = getCompilationUnits();
-        for (int i=0; i<units.getNumChild(); i++) {
+        for (int i=0; i<units.getNumChildNoTransform(); i++) {
             CompilationUnit unit = units.getChildNoTransform(i);
             List<TypeDecl> decls = unit.getTypeDecls();
-            for (int j=0; j<decls.getNumChild(); j++) {
+            for (int j=0; j<decls.getNumChildNoTransform(); j++) {
                 TypeDecl decl = decls.getChildNoTransform(j);
                 if (decl instanceof ClassDecl) {
                     Vector<LayerDecl> tmp = ((ClassDecl)decl).getAllLayers();

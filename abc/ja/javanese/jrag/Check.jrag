@@ -132,4 +132,85 @@ aspect Check {
     else
       cu.errors.add(new Problem(sourceFile(), s, lineNumber(), Problem.Severity.ERROR, Problem.Kind.SEMANTIC));
   }
+
+  public void Program.errorCheckCJ(Collection collection) {
+    for (Iterator iter = compilationUnitIterator(); iter.hasNext(); ) {
+      CompilationUnit cu = (CompilationUnit)iter.next();
+      if (cu.fromSource()) {
+        cu.collectErrorsCJ();
+        collection.addAll(cu.errors);
+      }
+    }
+  }
+
+  public void ASTNode.collectErrorsCJ() {
+    typeCheckCJ();
+    for (int i=0; i<getNumChildNoTransform(); i++) {
+      getChildNoTransform(i).collectErrorsCJ();
+    }
+  }
+
+  public void ASTNode.typeCheckCJ() {
+  }
+
+  public void MonitorDecl.typeCheckCJ() {
+    List<ParameterDeclaration> params = getParameters();
+    Opt o = getPerClauseOpt();
+    if (o.getNumChildNoTransform() > 0) {
+      if (params.getNumChildNoTransform() > 1) {
+        error(getID() + ": num. of parameters should be less than 1 " +
+              "when it is declared with perClause.");
+      }
+    } else {
+      if (params.getNumChildNoTransform() > 1) {
+        error(getID() + ": sorry, contextgroups with more than 1 parameters " +
+              "are currently not supported.");
+      }
+    }
+  }
+
+  public void EventActionSpec.typeCheckCJ() {
+    List ids = getEventIDs();
+    // TODO: currently it only performs the name checking for the
+    //       left-most receiver...
+    if (ids.getNumChildNoTransform() > 0) {
+      String id = ((EventID)ids.getChildNoTransform(0)).getID();
+      SimpleSet var = lookupVariable(id);
+      if (var.size() < 1) {
+        if(!getProgram().hasTypeCJ(getCompilationUnit().getPackageDecl(), id)){
+          error(id + " not found");
+        }
+      }
+      if (var.size() > 1) {
+        error("ambiguous event sender: " + id);
+      }
+    }
+  }
+
+  public static Vector<String> Program.cjTypes = new Vector<String>();
+
+  public void Program.preprosessServalCJ() {
+    Program.program = this;
+    processAnonymousContexts();
+    List<CompilationUnit> units = getCompilationUnits();
+    for (int i=0; i<units.getNumChild(); i++) {
+      CompilationUnit cu = units.getChildNoTransform(i);
+      List<TypeDecl> decls = cu.getTypeDeclList();
+      for (int j=0; j<decls.getNumChild(); j++) {
+        TypeDecl decl = decls.getChildNoTransform(j);
+        if (cu.fromSource()) {
+          if (decl instanceof MonitorDecl) {
+            MonitorDecl mDecl = (MonitorDecl)decl;
+            mDecl.rememberCompilationUnit(cu);
+            Program.monitorDecls.add(mDecl);
+          }
+        }
+        cjTypes.add(cu.getPackageDecl() + "." + decl.getID());
+      }
+    }
+  }
+
+  public boolean Program.hasTypeCJ(String pack, String name) {
+    return cjTypes.contains(pack + "." + name);
+  }
 }
