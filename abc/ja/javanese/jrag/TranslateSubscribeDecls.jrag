@@ -149,7 +149,7 @@ aspect TranslateSubscribeDecls {
                                       new Opt(new ParseName("_glm").qualifiesAccess(new ParseName("lm"))))));
                 adStmts.add(lmDecl2);
 
-                Vector<String> layers = prog.getAllLayerNames();
+                Vector<String> layers = prog.getAllReferredLayerNames();
                 Iterator<String> iter = layers.iterator();
                 while (iter.hasNext()) {
                     String varName = "current" + iter.next();
@@ -201,7 +201,7 @@ aspect TranslateSubscribeDecls {
         Program prog = getProgram();
         ClassDecl cDecl = prog.getClassDecl(typeName);
         if (cDecl != null) {
-            Vector<String> layerNames = cDecl.getAllLayerNames();
+            Vector<String> layerNames = cDecl.getAllReferredLayerNames();
             Iterator<String> iter = layerNames.iterator();
             if (iter.hasNext()) {
                 String layerName = iter.next();

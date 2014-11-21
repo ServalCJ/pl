@@ -95,6 +95,7 @@ public class AbcExtension extends abc.ja.AbcExtension {
 	    lexer.addJavaKeyword("enum", new LexerAction_c(new Integer(Terminals.ENUM)));
 	}
 	lexer.addGlobalKeyword("layer", new LexerAction_c(new Integer(Terminals.LAYER)));
+	lexer.addGlobalKeyword("activates", new LexerAction_c(new Integer(Terminals.ACTIVATES)));
 	lexer.addGlobalKeyword("proceed", new LexerAction_c(new Integer(Terminals.PROCEED)));
 	lexer.addGlobalKeyword("after", new LexerAction_c(new Integer(Terminals.AFTER)));
 	lexer.addGlobalKeyword("before", new LexerAction_c(new Integer(Terminals.BEFORE)));

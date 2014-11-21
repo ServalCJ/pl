@@ -148,7 +148,7 @@ public class CompileSequence extends abc.ja.CompileSequence {
         }
       }
 
-      program.preprosessServalCJ();
+      program.preprocessServalCJ();
 
       // ServalCJ error checking
       ArrayList errorsCJ = new ArrayList();

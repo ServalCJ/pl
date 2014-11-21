@@ -158,7 +158,7 @@ aspect GlobalMonitor {
     Iterator<String> iter = layers.iterator();
     while (iter.hasNext()) {
       String layerName = iter.next();
-      LayerDecl layer = new LayerDecl(layerName, new List());
+      LayerDecl layer = new LayerDecl(layerName, new List(), new List());
       bodies.add(layer);
     }
     return new ClassDecl(new Modifiers(), "GlobalLayerManager", new Opt(), new List(), bodies);

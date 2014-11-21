@@ -49,7 +49,8 @@ SubscriberType ::= <ID:String>;
 /*
  * Abstract syntax for layer declarations
  */
-LayerDecl : BodyDecl ::= <ID:String> BodyDecl*;
+LayerDecl : BodyDecl ::= <ID:String> Activate* BodyDecl*;
+Activate ::= <ID:String>;
 
 PartialMethodDecl : MethodDecl;
 BeforePartialMethodDecl : PartialMethodDecl;

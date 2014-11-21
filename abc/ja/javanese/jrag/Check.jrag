@@ -227,28 +227,41 @@ aspect Check {
 
   public static Vector<String> Program.cjTypes = new Vector<String>();
 
-  public void Program.preprosessServalCJ() {
-    Program.program = this;
-    processAnonymousContexts();
-    List<CompilationUnit> units = getCompilationUnits();
-    for (int i=0; i<units.getNumChild(); i++) {
-      CompilationUnit cu = units.getChildNoTransform(i);
-      List<TypeDecl> decls = cu.getTypeDeclList();
-      for (int j=0; j<decls.getNumChild(); j++) {
-        TypeDecl decl = decls.getChildNoTransform(j);
-        if (cu.fromSource()) {
-          if (decl instanceof MonitorDecl) {
-            MonitorDecl mDecl = (MonitorDecl)decl;
-            mDecl.rememberCompilationUnit(cu);
-            Program.monitorDecls.add(mDecl);
-          }
-        }
-        cjTypes.add(cu.getPackageDecl() + "." + decl.getID());
-      }
-    }
-  }
-
   public boolean Program.hasTypeCJ(String pack, String name) {
     return cjTypes.contains(pack + "." + name);
   }
+
+  // TODO: currently comparing methods is performed only based on method names
+  public boolean LayerDecl.hasMethodCJ(String mName) {
+    Program prog = Program.program;
+    for (Iterator<LayerDecl> iter = prog.allLayerDecls.iterator(); iter.hasNext(); ) {
+      LayerDecl lDecl = iter.next();
+      if (lDecl.getID().equals(getID())) {
+        List<BodyDecl> bDecls = lDecl.getBodyDecls();
+        for (int i=0; i<bDecls.getNumChildNoTransform(); i++) {
+          BodyDecl bDecl = bDecls.getChildNoTransform(i);
+          if (bDecl instanceof MethodDecl) {
+            MethodDecl mDecl = (MethodDecl)bDecl;
+            if (mDecl.getID().equals(mName)) return true;
+          }
+        }
+      }
+    }
+    ClassDecl cDecl = getEnclosingClass();
+    if (cDecl != null) return cDecl.hasMethodCJ(mName);
+    return false;
+  }
+
+  public boolean ClassDecl.hasMethodCJ(String mName) {
+    List<BodyDecl> bDecls = getBodyDecls();
+    for (int i=0; i<bDecls.getNumChildNoTransform(); i++) {
+      BodyDecl bDecl = bDecls.getChildNoTransform(i);
+      if (bDecl instanceof MethodDecl) {
+        MethodDecl mDecl = (MethodDecl)bDecl;
+        if (mDecl.getID().equals(mName)) return true;
+      }
+    }
+    return false;
+  }
+
 }

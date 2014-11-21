@@ -969,12 +969,22 @@ aspect Translate {
 
         // Generating for each layer
         if (unusedLayers.contains(lDecl.getID())) {
-        add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
+          add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
+          List<Activate> al = lDecl.getActivates();
+          for (int j=0; j<al.getNumChildNoTransform(); j++) {
+            Activate a = al.getChildNoTransform(j);
+            if (!unusedLayers.contains(a.getID())) {
+              LayerDecl rq = Program.program.searchLayer(a.getID());
+              if (rq != null) {
+                add.add(new MemberClassDecl(generateLayerInnerClass(rq,null)));
+              }
+            }
+          }
 
-        VariableDecl layer = new VariableDecl("instanceLayer$"+lDecl.getID(), new List(), new Opt());
-        layer.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt())));
-        FieldDecl layerDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("private"))), new ParseName("Layer$"+lDecl.getID()), new List().add(layer));
-        add.add(layerDecl);
+          VariableDecl layer = new VariableDecl("instanceLayer$"+lDecl.getID(), new List(), new Opt());
+          layer.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt())));
+          FieldDecl layerDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("private"))), new ParseName("Layer$"+lDecl.getID()), new List().add(layer));
+          add.add(layerDecl);
         }
         unusedLayers.remove(lDecl.getID());
       }
@@ -1373,21 +1383,23 @@ aspect Translate {
     }
 
     // searching unprovided partial methods..
-    List<BodyDecl> inBodies = layerInterface.getBodyDecls();
     Vector<MethodDecl> unprovided = new Vector<MethodDecl>();
-    for (int i=0; i<inBodies.getNumChildNoTransform(); i++) {
-      BodyDecl inBody = inBodies.getChildNoTransform(i);
-      if (inBody instanceof MethodDecl) {
-        MethodDecl m = (MethodDecl)inBody;
-        boolean found = false;
-        for (int j=0; j<lbodies.getNumChildNoTransform(); j++) {
-          BodyDecl lBody = lbodies.getChildNoTransform(j);
-          if (lBody instanceof MethodDecl &&
-              m.getID().equals(((MethodDecl)lBody).getID())) {
-            found = true;
+    if (layerInterface != null) {
+      List<BodyDecl> inBodies = layerInterface.getBodyDecls();
+      for (int i=0; i<inBodies.getNumChildNoTransform(); i++) {
+        BodyDecl inBody = inBodies.getChildNoTransform(i);
+        if (inBody instanceof MethodDecl) {
+          MethodDecl m = (MethodDecl)inBody;
+          boolean found = false;
+          for (int j=0; j<lbodies.getNumChildNoTransform(); j++) {
+            BodyDecl lBody = lbodies.getChildNoTransform(j);
+            if (lBody instanceof MethodDecl &&
+                m.getID().equals(((MethodDecl)lBody).getID())) {
+              found = true;
+            }
           }
+          if (!found) { unprovided.add(m); }
         }
-        if (!found) { unprovided.add(m); }
       }
     }
 
@@ -1435,7 +1447,18 @@ aspect Translate {
       lbodies.add(deactivate);
     }
 
-    return new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Layer$"+lDecl.getID(), new Opt(), new List().add(new ParseName("Layers$"+getID())), lbodies);
+    List<Activate> al = lDecl.getActivates();
+    Opt optSuper = new Opt();
+    if (al.getNumChildNoTransform() > 0) {
+      Activate a = al.getChildNoTransform(0);
+      optSuper = new Opt(new ParseName("Layer$"+a.getID()));
+    }
+
+    if (layerInterface != null) {
+      return new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Layer$"+lDecl.getID(), optSuper, new List().add(new ParseName("Layers$"+getID())), lbodies);
+    } else {
+      return new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Layer$"+lDecl.getID(), optSuper, new List(), lbodies);
+    }
   }
 
   public boolean MethodDecl.isActivateBlock() {

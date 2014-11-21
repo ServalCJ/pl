@@ -160,6 +160,7 @@ aspect Rewriting {
 //    eq EventActionSpec.getAccess().withinIfPC() = false;
 
     eq ExplicitTypeNamePattern.getAccess().withinIfPC() = false;  
+    eq LayerDecl.getActivate(int i).withinIfPC() = false;
 
     public boolean IfPointcutExpr.isGenerated = false;
     private boolean VarAccess.accessed = false;
@@ -319,12 +320,47 @@ aspect Rewriting {
     }
 
     rewrite MethodAccess {
-        when(!rewritten && isLayeredMethod())
+        when(!rewritten && isLayeredMethod() && !isImportedMethod())
         to Expr {
             String outerClass = getEnclosingClassName();
             MethodAccess mAccess = new MethodAccess(getID(), getArgs());
             mAccess.rewritten = true;
             return new ThisAccess("this").qualifiesAccess(mAccess);
+        }
+    }
+
+    public ClassDecl ASTNode.usedInLayer() {
+        if (this instanceof ClassDecl) {
+            ClassDecl cDecl = (ClassDecl)this;
+            String className = cDecl.getID();
+            if (className.length() > 6) className = className.substring(0,6);
+            if (className.equals("Layer$")) return cDecl;
+            else return null;
+        }
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.usedInLayer();
+    }
+
+    public boolean MethodAccess.isImportedMethod() {
+        ClassDecl cDecl = usedInLayer();
+        if (cDecl != null) {
+            String lName = cDecl.getID().split("\\$")[1];
+            LayerDecl l = Program.program.searchLayer(lName);
+            if (l != null) {
+                if (!(l.hasMethodCJ(getID())) && l.doesRequiredLayerProvides(getID())!=null)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    rewrite MethodAccess {
+        when (!rewritten && isImportedMethod())
+        to MethodAccess {
+            MethodAccess retval = new MethodAccess(getID(), getArgs().add(new ParseName("iter")));
+            retval.rewritten = true;
+            return retval;
         }
     }
 

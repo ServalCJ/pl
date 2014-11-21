@@ -96,6 +96,13 @@ aspect Utility {
         return forStmts;
     }
 
+/*
+    public Vector<LayerDecl> Program.getAllLayers() {
+        return allLayerDecls;
+    }
+*/
+
+
     public Vector<LayerDecl> Program.getAllLayers() {
         Vector<LayerDecl> retval = new Vector<LayerDecl>();
         List<CompilationUnit> units = getCompilationUnits();
@@ -115,6 +122,7 @@ aspect Utility {
         return retval;
     }
 
+
     public Vector<String> Program.getAllReferredLayerNames() {
         Vector<String> retval = new Vector<String>();
         Iterator<MonitorDecl> i = monitorDecls.iterator();
@@ -127,6 +135,16 @@ aspect Utility {
                 retval.add(layerName);
             }
         }
+/*
+        for (Iterator<LayerDecl> iter = allLayerDecls.iterator(); iter.hasNext(); ) {
+            LayerDecl lDecl = iter.next();
+            List<Activate> al = lDecl.getActivates();
+            for (Iterator<Activate> iter2 = al.iterator(); iter2.hasNext(); ) {
+                Activate a = iter2.next();
+                retval.add(a.getID());
+            }
+        }
+*/
         return retval;
     }
 
@@ -143,7 +161,7 @@ aspect Utility {
     public Vector<LayerDecl> ClassDecl.getAllLayers() {
         Vector<LayerDecl> retval = new Vector<LayerDecl>();
         List<BodyDecl> decls = getBodyDecls();
-        for (int i=0; i<decls.getNumChild(); i++) {
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
             BodyDecl decl = decls.getChildNoTransform(i);
             if (decl instanceof LayerDecl) {
                 retval.add((LayerDecl)decl);
@@ -164,6 +182,18 @@ aspect Utility {
         for (Iterator<LayerDecl> iter = layers.iterator(); iter.hasNext(); ) {
             LayerDecl layer = iter.next();
             if (!retval.contains(layer.getID())) retval.add(layer.getID());
+        }
+        return retval;
+    }
+
+    public Vector<String> ClassDecl.getAllReferredLayerNames() {
+        Vector<String> referred = Program.program.getAllReferredLayerNames();
+        Vector<String> retval = new Vector<String>();
+        Vector<LayerDecl> layers = getAllLayers();
+        for (Iterator<LayerDecl> iter = layers.iterator(); iter.hasNext(); ) {
+            LayerDecl layer = iter.next();
+            if (!retval.contains(layer.getID()) &&
+                 referred.contains(layer.getID())) retval.add(layer.getID());
         }
         return retval;
     }
@@ -275,6 +305,14 @@ aspect Utility {
     }
 
     public String ASTNode.getEnclosingClassName() {
+        /*
+        ClassDecl cDecl = getEnclosingClass();
+        if (cDecl != null) {
+            String id = cDecl.getID();
+            if (!id.contains("$")) return id;
+        }
+        return null;
+        */
         if (this instanceof ClassDecl) {
             String id = ((ClassDecl)this).getID();
             if (!id.contains("$")) return id;
@@ -282,6 +320,13 @@ aspect Utility {
         ASTNode parent = getParent();
         if (parent == null) return null;
         return parent.getEnclosingClassName();
+    }
+
+    public ClassDecl ASTNode.getEnclosingClass() {
+        if (this instanceof ClassDecl) return (ClassDecl)this;
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingClass();
     }
 
     public MonitorDecl ASTNode.getEnclosingMonitor() {
