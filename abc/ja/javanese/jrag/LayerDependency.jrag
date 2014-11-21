@@ -1,0 +1,36 @@
+/*
+ * ServalCJ auxiliary methods for checking layer dependency.
+ * Copyright (C) Tetsuo Kamina, 2014
+ */
+
+aspect LayerDependency {
+
+    public LayerDecl Program.searchLayer(String layerName) {
+        for (Iterator<LayerDecl> iter = allLayerDecls.iterator(); iter.hasNext(); ) {
+            LayerDecl lDecl = iter.next();
+            if (lDecl.getID().equals(layerName)) return lDecl;
+        }
+        return null;
+    }
+
+    public Vector<LayerDecl> LayerDecl.getRequiredLayers() {
+        Vector<LayerDecl> retval = new Vector<LayerDecl>();
+        List<Activate> aList = getActivates();
+        for (int i=0; i<aList.getNumChildNoTransform(); i++) {
+            Activate a = aList.getChildNoTransform(i);
+            LayerDecl l = Program.program.searchLayer(a.getID());
+            if (l != null) retval.add(l);
+        }
+        return retval;
+    }
+
+    public LayerDecl LayerDecl.doesRequiredLayerProvides(String mName) {
+        Vector<LayerDecl> requires = getRequiredLayers();
+        for (Iterator<LayerDecl> iter = requires.iterator(); iter.hasNext(); ){
+            LayerDecl l = iter.next();
+            if (l.hasMethodCJ(mName)) return l;
+        }
+        return null;
+    }
+
+}
