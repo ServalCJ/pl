@@ -1,6 +1,6 @@
 /*
  * Javanese translation to AspectJ
- * Copyright (C) Tetsuo Kamina, 2012-2014
+ * Copyright (C) Tetsuo Kamina, 2012-2015
  */
 
 import java.util.Vector;
@@ -51,7 +51,7 @@ aspect Translate {
   public void Program.toAspectJ() {
     List<CompilationUnit> units = getCompilationUnits();
     List<CompilationUnit> tmp = new List<CompilationUnit>();
-    CompilationUnit layerManager = null;
+    CompilationUnit layerManager = hasMonitorDecl() ? generateLayerManager() : null;
     for (int i=0; i<units.getNumChildNoTransform(); i++) {
       CompilationUnit cu = units.getChildNoTransform(i);
       if (cu.fromSource()) {
@@ -75,11 +75,6 @@ aspect Translate {
             if (ddecl instanceof GlobalMonitorDecl) {
               ClassDecl glm = ((GlobalMonitorDecl)ddecl).generateGlobalLayerManager(this);
               ads.add(glm);
-            }
-
-            // layer manager should be generated just once
-            if (layerManager == null) {
-              layerManager = generateLayerManager();
             }
           }
         }
@@ -111,17 +106,7 @@ aspect Translate {
 
   protected void MonitorDecl.prepareMonitorMap(List<BodyDecl> newBody) {
     Access mapType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("HashMap"));
-    VariableDecl map = new VariableDecl("map", new List(), new Opt());
-    map.setInit(new ClassInstanceExpr((Access)mapType.fullCopy(), new List(), new Opt()));
-    FieldDecl mapDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), mapType, new List().add(map));
-    newBody.add(mapDecl);
-  }
-
-  protected void MonitorDecl.prepareMagicNumberDecl(List<BodyDecl> newBody) {
-    VariableDecl magic = new VariableDecl("magicNumber", new List(), new Opt());
-    magic.setInit(new IntegerLiteral("0"));
-    FieldDecl mnDecl = new FieldDecl(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(magic));
-    newBody.add(mnDecl);
+    newBody.add(generateFieldDeclWithInit(mapType, "map", new ClassInstanceExpr((Access)mapType.fullCopy(), new List(), new Opt())));
   }
 
   public AspectDecl MonitorDecl.toAspectJ() {
@@ -133,7 +118,7 @@ aspect Translate {
     prepareMonitorMap(newBody);
 
     // adding field to check double application of advice
-    prepareMagicNumberDecl(newBody);
+    newBody.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "magicNumber", new IntegerLiteral("0")));
 
     String varName = null;
     String typeName = null;
@@ -143,7 +128,7 @@ aspect Translate {
       typeName = ((TypeAccess)p.getTypeAccess()).getID();
     }
 
-    // generating monitor installation from perClause
+    // generating an advice for instantiating contextgroup from perClause
     Opt o = getPerClauseOpt();
     if (o.getNumChildNoTransform() > 0) {
       PerClause perC = (PerClause)o.getChildNoTransform(0);
@@ -160,16 +145,13 @@ aspect Translate {
                                                     new ParseName(varName))));
       }
 
-      Access leftOp = new ParseName("map").qualifiesAccess(new ParseName("get"));
-      List<Expr> args = new List<Expr>();
-      Access arg = new ParseName(varName);
-      args.add(arg);
-      MethodAccess mAccess = new MethodAccess("get", args);
-      ((AbstractDot)leftOp).replaceLast(mAccess);
+
+      Access leftOp = new ParseName("map").qualifiesAccess(new MethodAccess("get", new List().add(new ParseName(varName))));
+
       EQExpr cond = new EQExpr(leftOp, new NullLiteral("null"));
+
       List<Stmt> ifstmts = new List<Stmt>();
-      Access withinIf = new ParseName("map").qualifiesAccess(new ParseName("put"));
-      List<Expr> args1 = new List<Expr>();
+      List<Expr> args = new List<Expr>();
       Access arg1 = new ParseName(varName);
       Access arg2 = null;
       if (this instanceof GlobalMonitorDecl) {
@@ -177,9 +159,8 @@ aspect Translate {
       } else {
         arg2 = new ClassInstanceExpr(new ParseName("Monitor$" + typeName), new List(), new Opt());
       }
-      args1.add(arg1).add(arg2);
-      MethodAccess mAccess1 = new MethodAccess("put", args1);
-      ((AbstractDot)withinIf).replaceLast(mAccess1);
+      args.add(arg1).add(arg2);
+      Access withinIf = new ParseName("map").qualifiesAccess(new MethodAccess("put", args));
       ifstmts.add(new ExprStmt(withinIf));
 
       stmts.add(new IfStmt(cond, new Block(ifstmts), new Opt()));
@@ -282,16 +263,10 @@ aspect Translate {
 
             // public boolean[] arrayName = {false, true, ... }
             Access type = new ArrayTypeAccess(new PrimitiveTypeAccess("boolean"));
-            VariableDecl arrayName = new VariableDecl(aDecl.getID(), new List(), new Opt());
-            arrayName.setInit(new ArrayInit(arrayInit));
-            FieldDecl arrayDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), type, new List().add(arrayName));
-            bodies.add(arrayDecl);
+            bodies.add(generateFieldDeclWithInit(type, aDecl.getID(), new ArrayInit(arrayInit)));
 
             // generating "public int current = 0;"
-            VariableDecl current = new VariableDecl("current"+aDecl.getID(), new List(), new Opt());
-            current.setInit(new IntegerLiteral(0));
-            FieldDecl currentDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(current));
-            bodies.add(currentDecl);
+            bodies.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "current"+aDecl.getID(), new IntegerLiteral(0)));
 
             List<Stmt> isActiveBody = new List<Stmt>();
             MethodDecl isActive = new MethodDecl(
@@ -338,33 +313,24 @@ aspect Translate {
 
             // public int reslvName = value ..
             for (String c : map.keySet()) {
-              VariableDecl reslvName = new VariableDecl("resolve$"+aDecl.getID()+"$"+c, new List(), new Opt());
-              reslvName.setInit(new IntegerLiteral(map.get(c)));
-              FieldDecl reslv = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(reslvName));
-              bodies.add(reslv);
+              bodies.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "resolve$"+aDecl.getID()+"$"+c, new IntegerLiteral(map.get(c))));
             }
           }
         }
       }
-
-      // following menbers are declared only once
-      if (i==0) {
-
-        // generating "public Object[] layers = new Object[100];"
-        Access vectorType = new ArrayTypeAccess(new ParseName("Object"));
-        VariableDecl layers = new VariableDecl("layers", new List(), new Opt());
-        layers.setInit(new ArrayCreationExpr(new ParseName("Object").addArrayDims(new List().add(new Dims(new Opt(new IntegerLiteral("100"))))), new Opt()));
-        FieldDecl layersDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), vectorType, new List().add(layers));
-        bodies.add(layersDecl);
-
-        FieldDecl layersCt = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("int"), new List().add(new VariableDecl("ct", new List(), new Opt(new IntegerLiteral("0")))));
-        bodies.add(layersCt);
-
-        bodies.add(containsLayerDecl());
-        bodies.add(removeLayerDecl());
-        bodies.add(shiftLayersDecl());
-      }
     }
+
+    // following menbers are declared only once
+
+    // generating "public Object[] layers = new Object[100];"
+    bodies.add(generateFieldDeclWithInit(new ArrayTypeAccess(new ParseName("Object")), "layers", new ArrayCreationExpr(new ParseName("Object").addArrayDims(new List().add(new Dims(new Opt(new IntegerLiteral("100"))))), new Opt())));
+
+    bodies.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "ct", new IntegerLiteral("0")));
+
+    bodies.add(containsLayerDecl());
+    bodies.add(removeLayerDecl());
+    bodies.add(shiftLayersDecl());
+
     CompilationUnit retval =  new CompilationUnit("javanese.generated",
                                                   new List(),
                                                   new List().add(cDecl));
@@ -374,8 +340,7 @@ aspect Translate {
   }
 
   private List Program.initI(Expr e) {
-    VarDeclStmt i = new VarDeclStmt(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(new VariableDecl("i", new List(), new Opt(e))));
-    return new List().add(i);
+    return new List().add(generateVarDeclStmt(new PrimitiveTypeAccess("int"), "i", e));
   }
 
   private MethodDecl Program.containsLayerDecl() {
@@ -426,226 +391,6 @@ aspect Translate {
                           new List().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "j")),
                           new List(),
                           new Opt(new Block(stmts)));
-  }
-
-  public void MonitorDecl.insertDummyActivateDecls(Vector<String> layerNames) {
-    for (Iterator<String> iter = layerNames.iterator(); iter.hasNext(); ) {
-      String layerName = iter.next();
-      Vector<ActivateDecl> aDecls = getActivateDecls();
-      boolean found = false;
-      for (Iterator<ActivateDecl> iter2 = aDecls.iterator(); iter2.hasNext();){
-        ActivateDecl aDecl = iter2.next();
-        if (layerName.equals(aDecl.getID())) found = true;
-      }
-      if (!found) {
-        ActivateDecl dummy = new ActivateDecl(
-                                   layerName,
-                                   new AtomCond("__Dummy"));
-        getBodyDecls().add(dummy);
-      }
-    }
-  }
-
-  /*
-   * generating monitor classes
-   */
-  public Vector<String> MonitorDecl.getTargetTypes() {
-    Vector<String> retval = new Vector<String>();
-    List<BodyDecl> decls = getBodyDecls();
-    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
-      BodyDecl body = decls.getChildNoTransform(i);
-      if (body instanceof SubscribeDecl) {
-        SubscribeDecl sdecl = (SubscribeDecl)body;
-        List<ParameterDeclaration> params = sdecl.getParameterList();
-        for (int j=0; j<params.getNumChildNoTransform(); j++) {
-          ParameterDeclaration p = params.getChildNoTransform(j);
-          String val = ((TypeAccess)p.getTypeAccess()).getPackage();
-          if (val.equals("")) {
-            val = ((TypeAccess)p.getTypeAccess()).getID();
-          } else {
-            val = val + "." + ((TypeAccess)p.getTypeAccess()).getID();
-          }
-          if (!retval.contains(val)) {
-            retval.add(val);
-          }
-        }
-      } else if (body instanceof SubscriberTypesDecl) {
-        SubscriberTypesDecl stDecl = (SubscriberTypesDecl)body;
-        List<SubscriberType> names = stDecl.getSubscriberTypes();
-        for (int j=0; j<names.getNumChildNoTransform(); j++) {
-          SubscriberType name = names.getChildNoTransform(j);
-          retval.add(name.getID());
-        }
-      }
-    }
-    return retval;
-  }
-
-  public void MonitorDecl.generateMonitorClass(Vector<String> targetTypes, Program prog) {
-    List<BodyDecl> bodies = new List<BodyDecl>();
-    List<ParameterDeclaration> params = getParameters();
-    ClassDecl cDecl = null;
-    TypeAccess subscriberType = null;
-    String varName = null;
-    String typeName = null;
-    if ((!(this instanceof GlobalMonitorDecl) && params.getNumChildNoTransform() > 0)) {
-      subscriberType = (TypeAccess)params.getChildNoTransform(0).getTypeAccess();
-      typeName = subscriberType.getID();
-      varName = params.getChildNoTransform(0).getID();
-      cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Monitor$"+subscriberType.getID(), new Opt(), new List(), bodies);
-    } else if (this instanceof GlobalMonitorDecl) {
-      cDecl = new ClassDecl(new Modifiers(), "GlobalMonitor", new Opt(), new List(), bodies);
-      if (params.getNumChildNoTransform() > 0) {
-        varName = params.getChildNoTransform(0).getID();
-        typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
-      }
-    }
-
-    for (Iterator<String> iter = targetTypes.iterator(); iter.hasNext(); ) {
-      String targetTypeOrg = iter.next();
-      String[] splitted = targetTypeOrg.split("\\.");
-      String targetType = splitted[splitted.length - 1];
-      Access targetTypeA = new ParseName(splitted[0]);
-      for (int i=1; i<splitted.length; i++) {
-          targetTypeA = targetTypeA.qualifiesAccess(new ParseName(splitted[i]));
-      }
-
-      // generating "public java.util.Vector subscribers = new java.util.Vector();"
-      Access vectorType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("Vector"));
-      VariableDecl subscribers = new VariableDecl("subscribers$"+targetType, new List(), new Opt());
-      subscribers.setInit(new ClassInstanceExpr((Access)vectorType.fullCopy(), new List(), new Opt()));
-      FieldDecl subscribersDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), vectorType, new List().add(subscribers));
-      bodies.add(subscribersDecl);
-      bodies.add(subscribe(targetTypeOrg));
-
-      VariableDecl target = new VariableDecl("target$"+targetType, new List(), new Opt());
-      target.setInit(new NullLiteral("null"));
-      FieldDecl targetDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("static")).add(new Modifier("public"))), targetTypeA, new List().add(target));
-      bodies.add(targetDecl);
-    }
-    String monitorName = "GlobalMonitor";
-
-    // inserting "dummyConstructor"
-    if ((!(this instanceof GlobalMonitorDecl) && subscriberType != null)) {
-      monitorName = "Monitor$" + subscriberType.getID();
-
-      List<Stmt> stmts = new List<Stmt>();
-      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName(monitorName).qualifiesAccess(new ParseName("target$"+subscriberType.getID())),
-                                                  new ParseName(varName))));
-
-      VariableDecl aspectVar = new VariableDecl("a", new List(), new Opt());
-      aspectVar.setInit(new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List())));
-      Stmt aspStmt = new VarDeclStmt(
-                             new Modifiers(),
-                             new ParseName(getID()),
-                             new List().add(aspectVar));
-      stmts.add(aspStmt);
-
-      VariableDecl retvalVar = new VariableDecl("retval", new List(), new Opt());
-      retvalVar.setInit(new ClassInstanceExpr(new ParseName("Monitor$" + typeName), new List(), new Opt()));
-      Stmt varDecl = new VarDeclStmt(
-                             new Modifiers(),
-                             new ParseName("Monitor$" + typeName),
-                             new List().add(retvalVar));
-      stmts.add(varDecl);
-
-      Access leftOp = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new ParseName("get"));
-      List<Expr> args = new List<Expr>().add(new ParseName(varName));
-      MethodAccess mAccess = new MethodAccess("get", args);
-      ((AbstractDot)leftOp).replaceLast(mAccess);
-      EQExpr cond = new EQExpr(leftOp, new NullLiteral("null"));
-      List<Stmt> ifstmts = new List<Stmt>();
-      Access withinIf = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new ParseName("put"));
-      List<Expr> args1 = new List<Expr>().add(new ParseName(varName)).add(new ParseName("retval"));
-      MethodAccess mAccess1 = new MethodAccess("put", args1);
-      ((AbstractDot)withinIf).replaceLast(mAccess1);
-      ifstmts.add(new ExprStmt(withinIf));
-      ifstmts.add(new ExprStmt(new AssignSimpleExpr(
-                                       new ParseName("retval").qualifiesAccess(new ParseName("__monitor")),
-                                       new ParseName(varName))));
-      stmts.add(new IfStmt(cond, new Block(ifstmts), new Opt()));
-
-      stmts.add(new ReturnStmt(new ParseName("retval")));
-
-      MethodDecl dummy = new MethodDecl(
-                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
-                                 new ParseName(monitorName),
-                                 "dummyConstructor",
-                                 params.fullCopy(),
-                                 new List(),
-                                 new Opt(new Block(stmts)));
-      bodies.add(dummy);
-
-      // dummy constructor for global contextgroup
-    } else if ((this instanceof GlobalMonitorDecl) && getPerClauseOpt().getNumChildNoTransform() == 0 && params.getNumChildNoTransform() > 0) {
-      List<Stmt> stmts = new List<Stmt>();
-      VariableDecl aspectVar = new VariableDecl("a", new List(), new Opt());
-      aspectVar.setInit(new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List())));
-      Stmt aspStmt = new VarDeclStmt(
-                             new Modifiers(),
-                             new ParseName(getID()),
-                             new List().add(aspectVar));
-      stmts.add(aspStmt);
-
-      VariableDecl retvalVar = new VariableDecl("retval", new List(), new Opt());
-      retvalVar.setInit(new ClassInstanceExpr(new ParseName("GlobalMonitor"), new List(), new Opt()));
-      Stmt varDecl = new VarDeclStmt(
-                             new Modifiers(),
-                             new ParseName("GlobalMonitor"),
-                             new List().add(retvalVar));
-      stmts.add(varDecl);
-
-      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("target$" + typeName), new ParseName(varName))));
-
-      EQExpr cond = new EQExpr(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("get", new List().add(new ParseName(varName)))), new NullLiteral("null"));
-      List<Stmt> tstmts = new List<Stmt>();
-      tstmts.add(new ExprStmt(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("put", new List().add(new ParseName(varName)).add(new ParseName("retval"))))));
-      tstmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("retval").qualifiesAccess(new ParseName("__monitor")), new ParseName(varName))));
-      stmts.add(new IfStmt(cond, new Block(tstmts), new Opt()));
-      stmts.add(new ReturnStmt(new ParseName("retval")));
-      MethodDecl dummy = new MethodDecl(
-                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
-                                 new ParseName(monitorName),
-                                 "dummyConstructor",
-                                 params.fullCopy(),
-                                 new List(),
-                                 new Opt(new Block(stmts)));
-      bodies.add(dummy);
-    }
-
-    CompilationUnit cu = new CompilationUnit(getCompilationUnit().getPackageDecl(),
-                                             getCompilationUnit().getImportDecls().fullCopy(),
-                                             new List().add(cDecl));
-    cu.setFromSource(true);
-    cu.setRelativeName(getCompilationUnit().getPackageDecl().replaceAll("\\.", String.valueOf(File.separatorChar)) + File.separatorChar + monitorName + ".java");
-    prog.addCompilationUnit(cu);
-  }
-
-  private MethodDecl MonitorDecl.subscribe(String typeNameOrg) {
-    List<Stmt> stmts = new List<Stmt>();
-    String typeName = null;
-    String[] splitted = typeNameOrg.split("\\.");
-    typeName = splitted[splitted.length - 1];
-
-    Access subscribersAdd = new ParseName("subscribers$"+typeName).qualifiesAccess(new ParseName("add"));
-    List<Expr> args = new List<Expr>();
-    args.add(new ParseName("rcv"));
-    MethodAccess mAccess = new MethodAccess("add", args);
-    ((AbstractDot)subscribersAdd).replaceLast(mAccess);
-    stmts.add(new ExprStmt(subscribersAdd));
-
-    stmts.add(new ExprStmt(new AssignSimpleExpr(
-                                new ParseName("rcv").qualifiesAccess(new ParseName("__monitor")),
-                                new ParseName("__monitor"))));
-
-    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
-    Access formalType = new ParseName(splitted[0]);
-    for (int i=1; i<splitted.length; i++) {
-      formalType = formalType.qualifiesAccess(new ParseName(splitted[i]));
-    }
-    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), formalType, "rcv");
-    params.add(param);
-    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "subscribe", params, new List(), new Opt(new Block(stmts)));
   }
 
   // This method returns an array containing the mapping from
@@ -762,6 +507,196 @@ aspect Translate {
     return values;
   }
 
+  /*
+   * generating monitor classes
+   */
+  public Vector<String> MonitorDecl.getTargetTypes() {
+    Vector<String> retval = new Vector<String>();
+    List<BodyDecl> decls = getBodyDecls();
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+      BodyDecl body = decls.getChildNoTransform(i);
+      if (body instanceof SubscribeDecl) {
+        SubscribeDecl sdecl = (SubscribeDecl)body;
+        List<ParameterDeclaration> params = sdecl.getParameterList();
+        for (int j=0; j<params.getNumChildNoTransform(); j++) {
+          ParameterDeclaration p = params.getChildNoTransform(j);
+          String val = ((TypeAccess)p.getTypeAccess()).getPackage();
+          if (val.equals("")) {
+            val = ((TypeAccess)p.getTypeAccess()).getID();
+          } else {
+            val = val + "." + ((TypeAccess)p.getTypeAccess()).getID();
+          }
+          if (!retval.contains(val)) {
+            retval.add(val);
+          }
+        }
+      } else if (body instanceof SubscriberTypesDecl) {
+        SubscriberTypesDecl stDecl = (SubscriberTypesDecl)body;
+        List<SubscriberType> names = stDecl.getSubscriberTypes();
+        for (int j=0; j<names.getNumChildNoTransform(); j++) {
+          SubscriberType name = names.getChildNoTransform(j);
+          retval.add(name.getID());
+        }
+      }
+    }
+    return retval;
+  }
+
+  public void MonitorDecl.generateMonitorClass(Vector<String> targetTypes, Program prog) {
+    List<BodyDecl> bodies = new List<BodyDecl>();
+    List<ParameterDeclaration> params = getParameters();
+    ClassDecl cDecl = null;
+    TypeAccess monitoredType = null;
+    String varName = null;
+    String typeName = null;
+    if ((!(this instanceof GlobalMonitorDecl) && params.getNumChildNoTransform() > 0)) {
+      monitoredType = (TypeAccess)params.getChildNoTransform(0).getTypeAccess();
+      typeName = monitoredType.getID();
+      varName = params.getChildNoTransform(0).getID();
+      cDecl = new ClassDecl(new Modifiers(new List().add(new Modifier("public"))), "Monitor$"+monitoredType.getID(), new Opt(), new List(), bodies);
+    } else if (this instanceof GlobalMonitorDecl) {
+      cDecl = new ClassDecl(new Modifiers(), "GlobalMonitor", new Opt(), new List(), bodies);
+      if (params.getNumChildNoTransform() > 0) {
+        varName = params.getChildNoTransform(0).getID();
+        typeName = ((TypeAccess)params.getChildNoTransform(0).getTypeAccess()).getID();
+      }
+    }
+
+    for (Iterator<String> iter = targetTypes.iterator(); iter.hasNext(); ) {
+      String targetTypeOrg = iter.next();
+      String[] splitted = targetTypeOrg.split("\\.");
+      String targetType = splitted[splitted.length - 1];
+      Access targetTypeA = new ParseName(splitted[0]);
+      for (int i=1; i<splitted.length; i++) {
+          targetTypeA = targetTypeA.qualifiesAccess(new ParseName(splitted[i]));
+      }
+
+      // generating "public java.util.Vector subscribers = new java.util.Vector();"
+      Access vectorType = new ParseName("java").qualifiesAccess(new ParseName("util")).qualifiesAccess(new ParseName("Vector"));
+      bodies.add(generateFieldDeclWithInit(vectorType, "subscribers$"+targetType, new ClassInstanceExpr((Access)vectorType.fullCopy(), new List(), new Opt())));
+
+      bodies.add(subscribe(targetTypeOrg));
+
+      VariableDecl target = new VariableDecl("target$"+targetType, new List(), new Opt());
+      target.setInit(new NullLiteral("null"));
+      FieldDecl targetDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("static")).add(new Modifier("public"))), targetTypeA, new List().add(target));
+      bodies.add(targetDecl);
+    }
+    String monitorName = "GlobalMonitor";
+
+    // inserting "dummyConstructor"
+    if ((!(this instanceof GlobalMonitorDecl) && monitoredType != null)) {
+      monitorName = "Monitor$" + monitoredType.getID();
+
+      List<Stmt> stmts = new List<Stmt>();
+      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName(monitorName).qualifiesAccess(new ParseName("target$"+monitoredType.getID())),
+                                                  new ParseName(varName))));
+
+      stmts.add(generateVarDeclStmt(new ParseName(getID()), "a", new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List()))));
+
+      stmts.add(generateVarDeclStmt(new ParseName("Monitor$"+typeName), "retval", new ClassInstanceExpr(new ParseName("Monitor$"+typeName), new List(), new Opt())));
+
+      Access leftOp = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("get", new List().add(new ParseName(varName))));
+      EQExpr cond = new EQExpr(leftOp, new NullLiteral("null"));
+      List<Stmt> ifstmts = new List<Stmt>();
+      Access withinIf = new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("put", new List().add(new ParseName(varName)).add(new ParseName("retval"))));
+      ifstmts.add(new ExprStmt(withinIf));
+      ifstmts.add(new ExprStmt(new AssignSimpleExpr(
+                                       new ParseName("retval").qualifiesAccess(new ParseName("__monitor")),
+                                       new ParseName(varName))));
+      stmts.add(new IfStmt(cond, new Block(ifstmts), new Opt()));
+
+      stmts.add(new ReturnStmt(new ParseName("retval")));
+
+      MethodDecl dummy = new MethodDecl(
+                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
+                                 new ParseName(monitorName),
+                                 "dummyConstructor",
+                                 params.fullCopy(),
+                                 new List(),
+                                 new Opt(new Block(stmts)));
+      bodies.add(dummy);
+
+      // dummy constructor for global contextgroup
+    } else if ((this instanceof GlobalMonitorDecl) && getPerClauseOpt().getNumChildNoTransform() == 0 && params.getNumChildNoTransform() > 0) {
+      List<Stmt> stmts = new List<Stmt>();
+
+      stmts.add(generateVarDeclStmt(new ParseName(getID()), "a", new ParseName(getID()).qualifiesAccess(new MethodAccess("aspectOf", new List()))));
+
+      stmts.add(generateVarDeclStmt(new ParseName("GlobalMonitor"), "retval", new ClassInstanceExpr(new ParseName("GlobalMonitor"), new List(), new Opt())));
+
+      stmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("target$" + typeName), new ParseName(varName))));
+
+      EQExpr cond = new EQExpr(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("get", new List().add(new ParseName(varName)))), new NullLiteral("null"));
+      List<Stmt> tstmts = new List<Stmt>();
+      tstmts.add(new ExprStmt(new ParseName("a").qualifiesAccess(new ParseName("map")).qualifiesAccess(new MethodAccess("put", new List().add(new ParseName(varName)).add(new ParseName("retval"))))));
+      tstmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("retval").qualifiesAccess(new ParseName("__monitor")), new ParseName(varName))));
+      stmts.add(new IfStmt(cond, new Block(tstmts), new Opt()));
+      stmts.add(new ReturnStmt(new ParseName("retval")));
+      MethodDecl dummy = new MethodDecl(
+                                 new Modifiers(new List().add(new Modifier("public")).add(new Modifier("static"))),
+                                 new ParseName(monitorName),
+                                 "dummyConstructor",
+                                 params.fullCopy(),
+                                 new List(),
+                                 new Opt(new Block(stmts)));
+      bodies.add(dummy);
+    }
+
+    CompilationUnit cu = new CompilationUnit(getCompilationUnit().getPackageDecl(),
+                                             getCompilationUnit().getImportDecls().fullCopy(),
+                                             new List().add(cDecl));
+    cu.setFromSource(true);
+    cu.setRelativeName(getCompilationUnit().getPackageDecl().replaceAll("\\.", String.valueOf(File.separatorChar)) + File.separatorChar + monitorName + ".java");
+    prog.addCompilationUnit(cu);
+  }
+
+  private MethodDecl MonitorDecl.subscribe(String typeNameOrg) {
+    List<Stmt> stmts = new List<Stmt>();
+    String typeName = null;
+    String[] splitted = typeNameOrg.split("\\.");
+    typeName = splitted[splitted.length - 1];
+
+    Access subscribersAdd = new ParseName("subscribers$"+typeName).qualifiesAccess(new MethodAccess("add", new List().add(new ParseName("rcv"))));
+    stmts.add(new ExprStmt(subscribersAdd));
+
+    stmts.add(new ExprStmt(new AssignSimpleExpr(
+                                new ParseName("rcv").qualifiesAccess(new ParseName("__monitor")),
+                                new ParseName("__monitor"))));
+
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    Access formalType = new ParseName(splitted[0]);
+    for (int i=1; i<splitted.length; i++) {
+      formalType = formalType.qualifiesAccess(new ParseName(splitted[i]));
+    }
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), formalType, "rcv");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "subscribe", params, new List(), new Opt(new Block(stmts)));
+  }
+
+  /*
+   * If there are no context groups, it just remove all layer declarations
+   * from all the classes.
+   */
+  public void ClassDecl.removeLayers() {
+    List<BodyDecl> decls = getBodyDecls();
+    Vector<Integer> nums = new Vector<Integer>();
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof LayerDecl) nums.add(new Integer(i));
+    }
+    for (int j=0; j<nums.size(); j++) {
+      decls.removeChild(nums.elementAt(j).intValue()-j);
+    }
+  }
+
+  /*
+   * Classes with layer declarations translation part, which translates
+   * layers into inner classes, generates instance variables managing the
+   * instance specific layer manager and layer instances.  It also
+   * generates an interface for layered methods and a mechanism for
+   * invocation of layered methods.
+   */
   public ActivateBlock LayerDecl.getActivateBlock() {
     ActivateBlock retval = null;
     List<BodyDecl> bodies = getBodyDecls();
@@ -794,30 +729,6 @@ aspect Translate {
     return getDeactivateBlock() != null ? true : false;
   }
     
-
-  /*
-   * If there are no context groups, it just remove all layer declarations
-   * from all the classes.
-   */
-  public void ClassDecl.removeLayers() {
-    List<BodyDecl> decls = getBodyDecls();
-    Vector<Integer> nums = new Vector<Integer>();
-    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
-      BodyDecl decl = decls.getChildNoTransform(i);
-      if (decl instanceof LayerDecl) nums.add(new Integer(i));
-    }
-    for (int j=0; j<nums.size(); j++) {
-      decls.removeChild(nums.elementAt(j).intValue()-j);
-    }
-  }
-
-  /*
-   * Classes with layer declarations translation part, which translates
-   * layers into inner classes, generates instance variables managing the
-   * instance specific layer manager and layer instances.  It also
-   * generates an interface for layered methods and a mechanism for
-   * invocation of layered methods.
-   */
   public void ClassDecl.translateLayers(Program prog) {
     boolean layerManagerFlag = true;
     List<BodyDecl> bodies = getBodyDecls();
@@ -825,14 +736,7 @@ aspect Translate {
     ClassDecl cLayerManager = null;
 
     // inserting field declaration for monitor
-    VariableDecl monitor =
-      new VariableDecl("__monitor", new List(), new Opt());
-    monitor.setInit(new NullLiteral("null"));
-    FieldDecl monitorDecl =
-      new FieldDecl(new Modifiers(new List().add(new Modifier("public"))),
-                    new ParseName("Object"),
-                    new List().add(monitor));
-    add.add(monitorDecl);
+    add.add(generateFieldDeclWithInit(new ParseName("Object"), "__monitor", new NullLiteral("null")));
 
     // inserting counters for cflow specs
     insertCflowCounters(add);
@@ -868,10 +772,7 @@ aspect Translate {
           layerManagerFlag = false;
 
           // variable managing the LayerManager
-          VariableDecl lm = new VariableDecl("lm", new List(), new Opt());
-          lm.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("LayerManager$"+getID()), new List(), new Opt())));
-          FieldDecl lmDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("public"))), new ParseName("LayerManager$"+getID()), new List().add(lm));
-          add.add(lmDecl);
+          add.add(generateFieldDeclWithInit(new ParseName("LayerManager$"+getID()), "lm", new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("LayerManager$"+getID()), new List(), new Opt()))));
 
           layerInterface = generateLayersInterface();
           add.add(new MemberInterfaceDecl(layerInterface));
@@ -981,10 +882,7 @@ aspect Translate {
             }
           }
 
-          VariableDecl layer = new VariableDecl("instanceLayer$"+lDecl.getID(), new List(), new Opt());
-          layer.setInit(new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt())));
-          FieldDecl layerDecl = new FieldDecl(new Modifiers(new List().add(new Modifier("private"))), new ParseName("Layer$"+lDecl.getID()), new List().add(layer));
-          add.add(layerDecl);
+          add.add(generateFieldDeclWithInit(new ParseName("Layer$"+lDecl.getID()), "instanceLayer$"+lDecl.getID(), new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt()))));
         }
         unusedLayers.remove(lDecl.getID());
       }
@@ -1024,10 +922,7 @@ aspect Translate {
   }
 
   private void ClassDecl.insertCallNextCalls(List<Stmt> newStmts, MethodDecl m, int num) {
-    VariableDecl iterV = new VariableDecl("iter"+num, new List(), new Opt());
-    iterV.setInit(new ParseName("lm").qualifiesAccess(new ParseName("ct")));
-    VarDeclStmt iterD = new VarDeclStmt(new Modifiers(new List()), new PrimitiveTypeAccess("int"), new List().add(iterV));
-    newStmts.add(iterD);
+    newStmts.add(generateVarDeclStmt(new PrimitiveTypeAccess("int"), "iter"+num, new ParseName("lm").qualifiesAccess(new ParseName("ct"))));
 
     String mName = m.getID();
     if (num == 1) { mName = "before_" + m.getID(); }
@@ -1134,12 +1029,10 @@ aspect Translate {
     Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
 
     List<Stmt> tstmts = new List<Stmt>();
-    VariableDecl l = new VariableDecl("l", new List(), new Opt());
+
     Expr cast = new CastExpr(new ParseName("Layers$"+getID()),
                              new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter")))));
-    l.setInit(cast);
-    VarDeclStmt lDecl = new VarDeclStmt(new Modifiers(new List()), new ParseName("Layers$"+getID()), new List().add(l));
-    tstmts.add(lDecl);
+    tstmts.add(generateVarDeclStmt(new ParseName("Layers$"+getID()), "l", cast));
 
     List vars = new List();
     int i=0;
@@ -1334,12 +1227,9 @@ aspect Translate {
       }
       Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
       List<Stmt> tstmts = new List<Stmt>();
-      VariableDecl l = new VariableDecl("l", new List(), new Opt());
       Expr cast = new CastExpr(new ParseName("Layers$"+getID()),
                              new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter")))));
-      l.setInit(cast);
-      VarDeclStmt lDecl = new VarDeclStmt(new Modifiers(new List()), new ParseName("Layers$"+getID()), new List().add(l));
-      tstmts.add(lDecl);
+      tstmts.add(generateVarDeclStmt(new ParseName("Layers$"+getID()), "l", cast));
       Stmt nextCall = new ExprStmt(new ParseName("l").qualifiesAccess(new MethodAccess(callName, ((List)args.fullCopy()).add(new ParseName("iter")))));
       tstmts.add(nextCall);
 

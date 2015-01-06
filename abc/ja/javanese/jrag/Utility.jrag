@@ -1,6 +1,6 @@
 /*
  * Utility methods and classes
- * Copyright (C) Tetsuo Kamina, 2012-2014
+ * Copyright (C) Tetsuo Kamina, 2012-2015
  */
 
 import java.util.Iterator;
@@ -96,13 +96,6 @@ aspect Utility {
         return forStmts;
     }
 
-/*
-    public Vector<LayerDecl> Program.getAllLayers() {
-        return allLayerDecls;
-    }
-*/
-
-
     public Vector<LayerDecl> Program.getAllLayers() {
         Vector<LayerDecl> retval = new Vector<LayerDecl>();
         List<CompilationUnit> units = getCompilationUnits();
@@ -122,7 +115,6 @@ aspect Utility {
         return retval;
     }
 
-
     public Vector<String> Program.getAllReferredLayerNames() {
         Vector<String> retval = new Vector<String>();
         Iterator<MonitorDecl> i = monitorDecls.iterator();
@@ -135,16 +127,6 @@ aspect Utility {
                 retval.add(layerName);
             }
         }
-/*
-        for (Iterator<LayerDecl> iter = allLayerDecls.iterator(); iter.hasNext(); ) {
-            LayerDecl lDecl = iter.next();
-            List<Activate> al = lDecl.getActivates();
-            for (Iterator<Activate> iter2 = al.iterator(); iter2.hasNext(); ) {
-                Activate a = iter2.next();
-                retval.add(a.getID());
-            }
-        }
-*/
         return retval;
     }
 
@@ -258,10 +240,10 @@ aspect Utility {
 
     public ClassDecl Program.getClassDecl(String name) {
         List<CompilationUnit> units = getCompilationUnits();
-        for (int i=0; i<units.getNumChild(); i++) {
+        for (int i=0; i<units.getNumChildNoTransform(); i++) {
             CompilationUnit unit = units.getChildNoTransform(i);
             List<TypeDecl> decls = unit.getTypeDecls();
-            for (int j=0; j<decls.getNumChild(); j++) {
+            for (int j=0; j<decls.getNumChildNoTransform(); j++) {
                 TypeDecl decl = decls.getChildNoTransform(j);
                 if (decl instanceof ClassDecl) {
                     ClassDecl cDecl = (ClassDecl)decl;
@@ -270,6 +252,19 @@ aspect Utility {
             }
         }
         return null;
+    }
+
+    public boolean Program.hasMonitorDecl() {
+        List<CompilationUnit> units = getCompilationUnits();
+        for (int i=0; i<units.getNumChildNoTransform(); i++) {
+            CompilationUnit unit = units.getChildNoTransform(i);
+            List<TypeDecl> decls = unit.getTypeDecls();
+            for (int j=0; j<decls.getNumChildNoTransform(); j++) {
+                TypeDecl decl = decls.getChildNoTransform(j);
+                if (decl instanceof MonitorDecl) return true;
+            }
+        }
+        return false;
     }
 
     public static boolean Program.isContextAffecting(String context, String layer) {
@@ -391,6 +386,16 @@ aspect Utility {
 
     public void ASTNode.insertDebugMessage(List<Stmt> stmts, String message) {
         stmts.add(new ExprStmt(new ParseName("System").qualifiesAccess(new ParseName("out")).qualifiesAccess(new MethodAccess("println", new List().add(new StringLiteral(message))))));
+    }
+
+    public FieldDecl ASTNode.generateFieldDeclWithInit(Access type, String id, Expr init) {
+        return new FieldDecl(new Modifiers(new List().add(new Modifier("public"))),
+                             type,
+                             new List().add(new VariableDecl(id, new List(), new Opt(init))));
+    }
+
+    public VarDeclStmt ASTNode.generateVarDeclStmt(Access type, String id, Expr init) {
+        return new VarDeclStmt(new Modifiers(new List()), type, new List().add(new VariableDecl(id, new List(), new Opt(init))));
     }
 
 }

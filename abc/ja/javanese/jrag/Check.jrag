@@ -163,8 +163,8 @@ aspect Check {
       }
     } else {
       if (params.getNumChildNoTransform() > 1) {
-        error(getID() + ": sorry, contextgroups with more than 1 parameters " +
-              "are currently not supported.");
+        error(getID() + ": a contextgroup with more than 1 parameters " +
+              "is currently not supported.");
       }
     }
   }

@@ -151,7 +151,7 @@ LayerDecl layer_declaration =
            {: return new LayerDecl(IDENTIFIER, a, b); :};
 
 List activates =
-    ACTIVATES activate_layer_list.a {: return a; :};
+    REQUIRES activate_layer_list.a {: return a; :};
 
 List activate_layer_list =
     activate_decl.n  {: return new List().add(n); :}
