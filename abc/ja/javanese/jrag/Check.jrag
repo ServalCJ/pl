@@ -103,10 +103,6 @@ aspect Check {
   eq ActivateBlock.getBlock().reachable() = true;
   eq DeactivateBlock.getBlock().reachable() = true;
 
-  refine Advice public void Proceed.typeCheck() {
-    // TODO
-  }
-
   refine ErrorCheck public void ASTNode.collectErrors() {
     if (!isProceed) ErrorCheck.ASTNode.collectErrors();
   }
@@ -169,6 +165,13 @@ aspect Check {
     }
   }
 
+  public void PointcutSpec.typeCheckCJ() {
+    PointcutExpr pc = getPointcutExpr();
+    if (!(pc instanceof IfPointcutExpr) && !(pc instanceof CflowPointcutExpr)) {
+      error("unsupported pointcut expression in when clause");
+    }
+  }
+
   public void EventActionSpec.typeCheckCJ() {
     List ids = getEventIDs();
     // TODO: currently it only performs the name checking for the
@@ -207,6 +210,49 @@ aspect Check {
       if (untilSpec instanceof PointcutActionSpec) {
         PointcutActionSpec puSpec = (PointcutActionSpec)untilSpec;
         typeCheckCJInternal(puSpec);
+      }
+    }
+  }
+
+  public void Proceed.typeCheckCJ() {
+    MethodDecl enclosing = getEnclosingMethodDecl();
+    if (enclosing != null) {
+      LayerDecl layer = getEnclosingLayerPre();
+      if (layer == null) {
+        error("proceed is not used within layer declaration");
+        return;
+      }
+      if ((enclosing instanceof BeforePartialMethodDecl) ||
+          (enclosing instanceof AfterPartialMethodDecl)) {
+        error("proceed is not used within around partial method");
+        return;
+      }
+      ClassDecl enclosingClass = getEnclosingClass();
+      if (enclosingClass != null) {
+        boolean found = false;
+        List<BodyDecl> classBody = enclosingClass.getBodyDecls();
+        for (int i=0; i<classBody.getNumChildNoTransform(); i++) {
+          BodyDecl decl = classBody.getChildNoTransform(i);
+          if ((decl instanceof MethodDecl) &&
+              ((MethodDecl)decl).compatible(enclosing))
+            found = true;
+        }
+        if (!found) error("proceed is used in the method whose original declaration is not provided by the class");
+      } else {
+        error("unexpected error in proceed");
+      }
+    } else {
+      error("proceed is not used within layer declaration");
+    }
+  }
+
+  public void LayerDecl.typeCheckCJ() {
+    List<Activate> acts = getActivates();
+    for (int i=0; i<acts.getNumChildNoTransform(); i++) {
+      Activate act = acts.getChildNoTransform(i);
+      LayerDecl req = Program.program.searchLayer(act.getID());
+      if (req == null) {
+        error("requiring unknown layer: " + act.getID());
       }
     }
   }

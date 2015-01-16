@@ -874,9 +874,13 @@ aspect Translate {
           List<Activate> al = lDecl.getActivates();
           for (int j=0; j<al.getNumChildNoTransform(); j++) {
             Activate a = al.getChildNoTransform(j);
-            if (!unusedLayers.contains(a.getID())) {
-              LayerDecl rq = Program.program.searchLayer(a.getID());
-              if (rq != null) {
+            LayerDecl rq = Program.program.searchLayer(a.getID());
+            if (rq != null) {
+              if (rq.matches(layerInterface)) {
+                rq.hasProceed = true;
+                add.add(new MemberClassDecl(generateLayerInnerClass(rq,layerInterface)));
+                add.add(generateFieldDeclWithInit(new ParseName("Layer$"+rq.getID()), "instanceLayer$"+rq.getID(), new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+rq.getID()), new List(), new Opt()))));
+              } else {
                 add.add(new MemberClassDecl(generateLayerInnerClass(rq,null)));
               }
             }

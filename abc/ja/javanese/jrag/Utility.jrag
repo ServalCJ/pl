@@ -124,7 +124,7 @@ aspect Utility {
             Iterator<ActivateDecl> iter = adcls.iterator();
             while (iter.hasNext()) {
                 String layerName = iter.next().getID();
-                retval.add(layerName);
+                if (!retval.contains(layerName)) retval.add(layerName);
             }
         }
         return retval;
@@ -300,14 +300,6 @@ aspect Utility {
     }
 
     public String ASTNode.getEnclosingClassName() {
-        /*
-        ClassDecl cDecl = getEnclosingClass();
-        if (cDecl != null) {
-            String id = cDecl.getID();
-            if (!id.contains("$")) return id;
-        }
-        return null;
-        */
         if (this instanceof ClassDecl) {
             String id = ((ClassDecl)this).getID();
             if (!id.contains("$")) return id;
@@ -324,12 +316,39 @@ aspect Utility {
         return parent.getEnclosingClass();
     }
 
+    public LayerDecl ASTNode.getEnclosingLayer() {
+        if (this instanceof ClassDecl) {
+            String id = ((ClassDecl)this).getID();
+            if (id.contains("$")) {
+                String layerName = id.split("\\$",0)[1];
+                return Program.program.searchLayer(layerName);
+            }
+        }
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingLayer();
+    }
+
     public MonitorDecl ASTNode.getEnclosingMonitor() {
         if (this instanceof MonitorDecl)
             return (MonitorDecl)this;
         ASTNode parent = getParent();
         if (parent == null) return null;
         return parent.getEnclosingMonitor();
+    }
+
+    public MethodDecl ASTNode.getEnclosingMethodDecl() {
+        if (this instanceof MethodDecl) return (MethodDecl)this;
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingMethodDecl();
+    }
+
+    public LayerDecl ASTNode.getEnclosingLayerPre() {
+        if (this instanceof LayerDecl) return (LayerDecl)this;
+        ASTNode parent = getParent();
+        if (parent == null) return null;
+        return parent.getEnclosingLayerPre();
     }
 
     public String ASTNode.getEnclosingMonitorName() {
@@ -396,6 +415,36 @@ aspect Utility {
 
     public VarDeclStmt ASTNode.generateVarDeclStmt(Access type, String id, Expr init) {
         return new VarDeclStmt(new Modifiers(new List()), type, new List().add(new VariableDecl(id, new List(), new Opt(init))));
+    }
+
+    public boolean LayerDecl.matches(InterfaceDecl interfaceDecl) {
+        List<BodyDecl> decls = interfaceDecl.getBodyDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof MethodDecl) {
+                MethodDecl mDecl = (MethodDecl)decl;
+                if (!hasMethod(mDecl)) return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean LayerDecl.hasMethod(MethodDecl mDecl) {
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof MethodDecl) {
+                MethodDecl myMDecl = (MethodDecl)decl;
+                if (myMDecl.compatible(mDecl)) return true;
+            }
+        }
+        return false;
+    }
+
+    // TODO: currently comparing only method names
+    public boolean MethodDecl.compatible(MethodDecl mDecl) {
+        if (getID().equals(mDecl.getID())) return true;
+        else return false;
     }
 
 }

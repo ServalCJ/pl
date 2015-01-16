@@ -60,6 +60,7 @@ ContextDecl context_declaration =
 FluentSpec fluent_spec =
     active_until_spec.a {: return a; :}
  |  pointcut_spec.p {: return p; :};
+// |  if_spec.i {: return p; :};
 
 ActiveUntilSpec active_until_spec =
     ACTIVE LPAREN formal_parameter_list.la? RPAREN action_spec.a
@@ -76,6 +77,9 @@ PointcutActionSpec action_spec =
 PointcutSpec pointcut_spec =
     pointcut_expr.p {: return new PointcutSpec(p); :};
 
+//PointcutSpec if_spec =
+//    unary_expression.e {: return new PointcutSpec(new IfPointcutExpr(e)); :};
+
 EventActionSpec named_event =
     event_pattern.n  {: return new EventActionSpec(n); :};
 
@@ -84,7 +88,9 @@ List event_pattern =
  |  event_pattern.l DOT IDENTIFIER {: return l.add(new EventID(IDENTIFIER)); :};
 
 ActivateDecl activate_declaration =
-    ACTIVATE IDENTIFIER WHEN context_condition.c SEMICOLON
+    ACTIVATE IDENTIFIER COLON context_condition.c SEMICOLON
+    {: return new ActivateDecl(IDENTIFIER, c); :}
+ |  ACTIVATE IDENTIFIER WHEN context_condition.c SEMICOLON
     {: return new ActivateDecl(IDENTIFIER, c); :};
 
 ContextCond context_condition =

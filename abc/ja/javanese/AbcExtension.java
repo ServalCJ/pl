@@ -144,6 +144,8 @@ public class AbcExtension extends abc.ja.AbcExtension {
 	lexer.addPointcutKeyword("until", new LexerAction_c(new Integer(Terminals.UNTIL)));
 	lexer.addPointcutKeyword("when", new LexerAction_c(new Integer(Terminals.WHEN)));
 	lexer.addPointcutKeyword("not", new LexerAction_c(new Integer(Terminals.PC_NOTJVN)));
+	//        lexer.addPointcutKeyword("and", new LexerAction_c(new Integer(Terminals.PC_ANDJVN)));
+	//	lexer.addPointcutKeyword("or", new LexerAction_c(new Integer(Terminals.PC_ORJVN)));
 
 	lexer.addAspectJContextKeyword("pertarget", new LexerAction_c(new Integer(Terminals.PERTARGET), new Integer(lexer.pointcut_state())));
 	lexer.addAspectJContextKeyword("perthis", new LexerAction_c(new Integer(Terminals.PERTHIS), new Integer(lexer.pointcut_state())));

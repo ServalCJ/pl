@@ -1,7 +1,7 @@
 /*
  * Rewriting of Javanese terms, such as proceed and expressions used in
  * the if expression
- * Copyright (C) Tetsuo Kamina, 2012-2014
+ * Copyright (C) Tetsuo Kamina, 2012-2015
  */
 
 import java.util.Collection;
@@ -95,19 +95,39 @@ aspect Rewriting {
 
     // rewriting rule for the "proceed" invocation
     public boolean ASTNode.isProceed = false;
+    public boolean LayerDecl.hasProceed = false;
     rewrite Proceed {
         to ASTNode {
             MethodDecl m = enclosingMethod();
             String mName1 = m != null ? m.getID() : "";
             String mName = "callNext$" + mName1;
             String className = m.getEnclosingClassName();
+            LayerDecl layer = m.getEnclosingLayer();
+            String reqName = null;
+            boolean delegateFlag = false;
+            if (layer != null) {
+                List<Activate> acts = layer.getActivates();
+                if (acts.getNumChildNoTransform() > 0) {
+                    reqName = acts.getChildNoTransform(0).getID();
+                    LayerDecl reqDecl = Program.program.searchLayer(reqName);
+                    if (reqDecl != null && reqDecl.hasProceed) delegateFlag = true;
+                }
+            }
             Expr cond = new NEExpr(new ParseName("iter"), new IntegerLiteral("0"));
-//            Expr cond = new LTExpr(new ParseName("iter"), new ParseName("lm").qualifiesAccess(new ParseName("ct")));
             Expr trueExpr = new CastExpr(new ParseName("Layers$"+className),
                                          new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new PreDecExpr(new ParseName("iter"))))).
                                  qualifiesAccess(new MethodAccess(m.getID(), ((List)getArgs().fullCopy()).add(new ParseName("iter"))));
             Expr falseExpr = new MethodAccess(m.getID()+"$original", ((List)getArgs().fullCopy()));
             ConditionalExpr retval = new ConditionalExpr(cond, trueExpr, falseExpr);
+            if (delegateFlag) {
+                Expr cond2 = new LogNotExpr(new ThisAccess("this").qualifiesAccess(new ParseName("lm")).qualifiesAccess(new MethodAccess("containsLayer", new List().add(new ThisAccess("this").qualifiesAccess(new ParseName("instanceLayer$"+reqName))))));
+                MethodAccess mAccess = new MethodAccess(m.getID(), ((List)getArgs().fullCopy()).add(new ParseName("iter")));
+                // prohibiting further rewriting
+                mAccess.rewritten = true;
+                Expr trueExpr2 = new ThisAccess("this").qualifiesAccess(new ParseName("instanceLayer$"+reqName)).qualifiesAccess(mAccess);
+                retval = new ConditionalExpr(cond2, trueExpr2, retval);
+            }
+
             retval.isProceed = true;
             return retval;
         }
@@ -288,7 +308,7 @@ aspect Rewriting {
 //    eq LayerDecl.getBodyDecl(int i).enclosingClass() = this;
     eq EnumConstant.getBodyDecl(int i).enclosingClass() = enclosingClass();
 
-    private boolean MethodAccess.rewritten = false;
+    public boolean MethodAccess.rewritten = false;
 
     public boolean MethodAccess.isLayeredMethod() {
         Collection c = null;
