@@ -102,6 +102,8 @@ public class AbcExtension extends abc.ja.AbcExtension {
 	lexer.addGlobalKeyword("activate", new LexerAction_c(new Integer(Terminals.ACTIVATE)));
 	lexer.addGlobalKeyword("deactivate", new LexerAction_c(new Integer(Terminals.DEACTIVATE)));
 	lexer.addGlobalKeyword("global", new LexerAction_c(new Integer(Terminals.GLOBAL)));
+	lexer.addGlobalKeyword("perthread", new LexerAction_c(new Integer(Terminals.PERTHREAD)));
+
 
 	/* pointcut keywords */
 	lexer.addPointcutKeyword("adviceexecution", new LexerAction_c(new Integer(Terminals.EOF))); // disallow 'adviceexecution' keyword
@@ -140,10 +142,14 @@ public class AbcExtension extends abc.ja.AbcExtension {
 	 */
 	lexer.addPointcutKeyword("after", new LexerAction_c(new Integer(Terminals.AFTER)));
 	lexer.addPointcutKeyword("before", new LexerAction_c(new Integer(Terminals.BEFORE)));
-	lexer.addPointcutKeyword("active", new LexerAction_c(new Integer(Terminals.ACTIVE)));
-	lexer.addPointcutKeyword("until", new LexerAction_c(new Integer(Terminals.UNTIL)));
+	//	lexer.addPointcutKeyword("active", new LexerAction_c(new Integer(Terminals.ACTIVE)));
+	//	lexer.addPointcutKeyword("until", new LexerAction_c(new Integer(Terminals.UNTIL)));
+	lexer.addPointcutKeyword("from", new LexerAction_c(new Integer(Terminals.FROM)));
+	lexer.addPointcutKeyword("to", new LexerAction_c(new Integer(Terminals.TO)));
 	lexer.addPointcutKeyword("when", new LexerAction_c(new Integer(Terminals.WHEN)));
 	lexer.addPointcutKeyword("not", new LexerAction_c(new Integer(Terminals.PC_NOTJVN)));
+	lexer.addPointcutKeyword("is", new LexerAction_c(new Integer(Terminals.IS)));
+	lexer.addPointcutKeyword("in", new LexerAction_c(new Integer(Terminals.IN)));
 	//        lexer.addPointcutKeyword("and", new LexerAction_c(new Integer(Terminals.PC_ANDJVN)));
 	//	lexer.addPointcutKeyword("or", new LexerAction_c(new Integer(Terminals.PC_ORJVN)));
 

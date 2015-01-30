@@ -447,4 +447,16 @@ aspect Utility {
         else return false;
     }
 
+    public boolean ClassDecl.hasMethod(MethodDecl mDecl) {
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof MethodDecl) {
+                MethodDecl myMDecl = (MethodDecl)decl;
+                if (myMDecl.compatible(mDecl)) return true;
+            }
+        }
+        return false;
+    }
+
 }

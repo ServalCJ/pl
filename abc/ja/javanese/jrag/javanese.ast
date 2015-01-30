@@ -25,6 +25,7 @@ EventActionSpec : ActionSpec ::= EventID*;
 EventID ::= <ID:String>;
 
 ActivateDecl : MonitorBodyDecl ::= <ID:String> ContextCond;
+PerthreadActivateDecl : ActivateDecl;
 
 abstract ContextCond;
 AtomCond : ContextCond ::= <Name:String>;

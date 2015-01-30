@@ -332,8 +332,15 @@ aspect Rewriting {
             if (className.length() > 6)
                 className = className.substring(0,6);
             if (className.equals("Layer$")) {
-                if (!getModifiers().isPrivate())
-                    return !isActivateBlock();
+                if (!getModifiers().isPrivate()) {
+                    ASTNode node1 = tDecl.getParent();
+                    if (node1 != null) {
+                        ClassDecl outer = node1.getEnclosingClass();
+                        if (outer != null && outer.hasMethod(this)) {
+                            return !isActivateBlock();
+                        }
+                    }
+                }
             }
         }
         return false;
@@ -375,6 +382,7 @@ aspect Rewriting {
         return false;
     }
 
+/*
     rewrite MethodAccess {
         when (!rewritten && isImportedMethod())
         to MethodAccess {
@@ -383,6 +391,7 @@ aspect Rewriting {
             return retval;
         }
     }
+*/
 
     private boolean ThisAccess.withinLayer() {
         MethodDecl m = enclosingMethod();

@@ -54,31 +54,38 @@ BodyDecl monitor_body_declaration =
  |  subscriber_types_decl.s {: return s; :};
 
 ContextDecl context_declaration =
-    CONTEXT IDENTIFIER fluent_spec.f SEMICOLON
+    CONTEXT IDENTIFIER IS? fluent_spec.f SEMICOLON
     {: return new ContextDecl(IDENTIFIER,f); :};
 
 FluentSpec fluent_spec =
     active_until_spec.a {: return a; :}
  |  pointcut_spec.p {: return p; :};
-// |  if_spec.i {: return p; :};
 
 ActiveUntilSpec active_until_spec =
+/*
     ACTIVE LPAREN formal_parameter_list.la? RPAREN action_spec.a
       UNTIL LPAREN formal_parameter_list.lu? RPAREN action_spec.u
     {: a.setParameterList(la);
        u.setParameterList(lu);
        return new ActiveUntilSpec(a,u); :}
- | ACTIVE named_event.a UNTIL named_event.u {: return new ActiveUntilSpec(a,u); :};
+ | ACTIVE named_event.a UNTIL named_event.u {: return new ActiveUntilSpec(a,u); :}
+*/
+ | FROM LPAREN formal_parameter_list.la? RPAREN action_spec.a
+      TO LPAREN formal_parameter_list.lu? RPAREN action_spec.u
+    {: a.setParameterList(la);
+       u.setParameterList(lu);
+       return new ActiveUntilSpec(a,u); :}
+ | FROM named_event.a TO named_event.u {: return new ActiveUntilSpec(a,u); :};
 
 PointcutActionSpec action_spec =
     AFTER pointcut_expr.p {: return new AfterActionSpec(null,p); :}
  |  BEFORE pointcut_expr.p {: return new BeforeActionSpec(null,p); :};
 
 PointcutSpec pointcut_spec =
-    pointcut_expr.p {: return new PointcutSpec(p); :};
-
-//PointcutSpec if_spec =
-//    unary_expression.e {: return new PointcutSpec(new IfPointcutExpr(e)); :};
+    PC_IF LPAREN expression.a RPAREN
+      {: return new PointcutSpec(new IfPointcutExpr(a)); :}
+ |  IN PC_CFLOW LPAREN pointcut_expr.a RPAREN
+      {: return new PointcutSpec(new CflowPointcutExpr(a)); :};
 
 EventActionSpec named_event =
     event_pattern.n  {: return new EventActionSpec(n); :};
@@ -88,10 +95,12 @@ List event_pattern =
  |  event_pattern.l DOT IDENTIFIER {: return l.add(new EventID(IDENTIFIER)); :};
 
 ActivateDecl activate_declaration =
-    ACTIVATE IDENTIFIER COLON context_condition.c SEMICOLON
+    ACTIVATE IDENTIFIER context_condition.c SEMICOLON
     {: return new ActivateDecl(IDENTIFIER, c); :}
- |  ACTIVATE IDENTIFIER WHEN context_condition.c SEMICOLON
-    {: return new ActivateDecl(IDENTIFIER, c); :};
+ |  PERTHREAD ACTIVATE IDENTIFIER context_condition.c SEMICOLON
+    {: return new PerthreadActivateDecl(IDENTIFIER, c); :};
+// |  ACTIVATE IDENTIFIER WHEN context_condition.c SEMICOLON
+//    {: return new ActivateDecl(IDENTIFIER, c); :};
 
 ContextCond context_condition =
     and_context_condition.a {: return a; :}
@@ -105,6 +114,7 @@ ContextCond and_context_condition =
 
 ContextCond unary_context_condition =
     IDENTIFIER {: return new AtomCond(IDENTIFIER); :}
+ |  WHEN IDENTIFIER {: return new AtomCond(IDENTIFIER); :}
  |  PC_NOTJVN unary_context_condition.u {: return new NotCond(u); :}
  |  LPAREN context_condition.c RPAREN {: return c; :}
  |  fluent_spec.f {:

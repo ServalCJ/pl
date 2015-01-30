@@ -728,7 +728,19 @@ aspect Translate {
   public boolean LayerDecl.hasDeactivateBlock() {
     return getDeactivateBlock() != null ? true : false;
   }
+
+  public boolean LayerDecl.requiringUsedLayer() {
+    List<Activate> acts = getActivates();
+    for (int i=0; i<acts.getNumChildNoTransform(); i++) {
+      Activate act = acts.getChildNoTransform(i);
+      Vector<String> referred = Program.program.getAllReferredLayerNames();
+      if (referred.contains(act.getID())) return true;
+    }
+    return false;
+  }
     
+  public boolean LayerDecl.generated = false;
+
   public void ClassDecl.translateLayers(Program prog) {
     boolean layerManagerFlag = true;
     List<BodyDecl> bodies = getBodyDecls();
@@ -869,15 +881,17 @@ aspect Translate {
         }
 
         // Generating for each layer
-        if (unusedLayers.contains(lDecl.getID())) {
-          add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
+        if (unusedLayers.contains(lDecl.getID()) || lDecl.requiringUsedLayer()) {
+          if (!lDecl.generated) 
+            add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
           List<Activate> al = lDecl.getActivates();
           for (int j=0; j<al.getNumChildNoTransform(); j++) {
             Activate a = al.getChildNoTransform(j);
             LayerDecl rq = Program.program.searchLayer(a.getID());
-            if (rq != null) {
+            if (rq != null && !rq.generated) {
               if (rq.matches(layerInterface)) {
                 rq.hasProceed = true;
+		rq.generated = true;
                 add.add(new MemberClassDecl(generateLayerInnerClass(rq,layerInterface)));
                 add.add(generateFieldDeclWithInit(new ParseName("Layer$"+rq.getID()), "instanceLayer$"+rq.getID(), new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+rq.getID()), new List(), new Opt()))));
               } else {
@@ -886,7 +900,8 @@ aspect Translate {
             }
           }
 
-          add.add(generateFieldDeclWithInit(new ParseName("Layer$"+lDecl.getID()), "instanceLayer$"+lDecl.getID(), new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt()))));
+          if (!lDecl.generated)
+            add.add(generateFieldDeclWithInit(new ParseName("Layer$"+lDecl.getID()), "instanceLayer$"+lDecl.getID(), new ThisAccess("this").qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$"+lDecl.getID()), new List(), new Opt()))));
         }
         unusedLayers.remove(lDecl.getID());
       }
@@ -1264,7 +1279,7 @@ aspect Translate {
           args.add(new ParseName(param.getID()));
         }
         String origName = mDecl.getID();
-        if (!mDecl.getModifiers().isPrivate())
+        if (!mDecl.getModifiers().isPrivate() && hasMethod(mDecl))
           mDecl.getParameters().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "iter"));
         if (mDecl instanceof BeforePartialMethodDecl) {
           mDecl.setID("before_"+origName);
@@ -1431,7 +1446,7 @@ aspect Translate {
                ((MethodDecl)lbDecl).isPublic()) {
             MethodDecl m = (MethodDecl)lbDecl;
             MethodItem mItem = new MethodItem(m);
-            if (!retval.contains(mItem)) {
+            if (!retval.contains(mItem) && hasMethod(m)) {
               retval.add(mItem);
             }
           }

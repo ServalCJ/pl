@@ -1,6 +1,6 @@
 /*
  * Javanese check.
- * Copyright (C) Tetsuo Kamina, 2012-2014
+ * Copyright (C) Tetsuo Kamina, 2012-2015
  */
 
 aspect Check {
@@ -244,6 +244,10 @@ aspect Check {
     } else {
       error("proceed is not used within layer declaration");
     }
+  }
+
+  public void PerthreadActivateDecl.typeCheckCJ() {
+    error("currently the perthread feature is not supported.");
   }
 
   public void LayerDecl.typeCheckCJ() {
