@@ -254,6 +254,23 @@ aspect Utility {
         return null;
     }
 
+    public Vector<ClassDecl> Program.getClassDecls(String name) {
+        Vector<ClassDecl> retval = new Vector<ClassDecl>();
+        List<CompilationUnit> units = getCompilationUnits();
+        for (int i=0; i<units.getNumChildNoTransform(); i++) {
+            CompilationUnit unit = units.getChildNoTransform(i);
+            List<TypeDecl> decls = unit.getTypeDecls();
+            for (int j=0; j<decls.getNumChildNoTransform(); j++) {
+                TypeDecl decl = decls.getChildNoTransform(j);
+                if (decl instanceof ClassDecl) {
+                    ClassDecl cDecl = (ClassDecl)decl;
+                    if (cDecl.getID().equals(name)) retval.add(cDecl);
+                }
+            }
+        }
+        return retval;
+    }
+
     public boolean Program.hasMonitorDecl() {
         List<CompilationUnit> units = getCompilationUnits();
         for (int i=0; i<units.getNumChildNoTransform(); i++) {
@@ -346,6 +363,13 @@ aspect Utility {
 
     public LayerDecl ASTNode.getEnclosingLayerPre() {
         if (this instanceof LayerDecl) return (LayerDecl)this;
+        if (this instanceof OuterLayerDecl) {
+            OuterLayerDecl outer = (OuterLayerDecl)this;
+            String id = outer.getID();
+            List<Activate> acts = (List<Activate>)outer.getActivates().fullCopy();
+            List<BodyDecl> decls = (List<BodyDecl>)outer.getBodyDecls().fullCopy();
+            return new LayerDecl(id,acts,decls);
+        }
         ASTNode parent = getParent();
         if (parent == null) return null;
         return parent.getEnclosingLayerPre();
@@ -454,6 +478,25 @@ aspect Utility {
             if (decl instanceof MethodDecl) {
                 MethodDecl myMDecl = (MethodDecl)decl;
                 if (myMDecl.compatible(mDecl)) return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean CompilationUnit.importingClass(ClassDecl cDecl) {
+        List<ImportDecl> decls = getImportDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+            ImportDecl decl = decls.getChildNoTransform(i);
+            Access a = decl.getAccess();
+            if (a instanceof PackageAccess) {
+                PackageAccess pack = (PackageAccess)a;
+                if (pack.getPackage().equals(cDecl.getCompilationUnit().getPackageDecl()))
+                    return true;
+            } else if (a instanceof TypeAccess) {
+                TypeAccess type = (TypeAccess)a;
+                if (type.getPackage().equals(cDecl.getCompilationUnit().getPackageDecl()) &&
+                    type.getID().equals(cDecl.getID()))
+                    return true;
             }
         }
         return false;

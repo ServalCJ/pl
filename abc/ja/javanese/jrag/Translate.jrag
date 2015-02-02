@@ -882,8 +882,10 @@ aspect Translate {
 
         // Generating for each layer
         if (unusedLayers.contains(lDecl.getID()) || lDecl.requiringUsedLayer()) {
-          if (!lDecl.generated) 
-            add.add(new MemberClassDecl(generateLayerInnerClass(lDecl,layerInterface)));
+          if (!lDecl.generated) {
+            ClassDecl gen = generateLayerInnerClass(lDecl,layerInterface);
+            add.add(new MemberClassDecl(gen));
+          }
           List<Activate> al = lDecl.getActivates();
           for (int j=0; j<al.getNumChildNoTransform(); j++) {
             Activate a = al.getChildNoTransform(j);

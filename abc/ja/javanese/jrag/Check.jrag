@@ -135,6 +135,7 @@ aspect Check {
       if (cu.fromSource()) {
         cu.collectErrorsCJ();
         collection.addAll(cu.errors);
+        if (cu.hasOuterLayer) cu.setTypeDeclList(new List());
       }
     }
   }
@@ -261,6 +262,45 @@ aspect Check {
     }
   }
 
+  public void OuterLayerDecl.typeCheckCJ() {
+    List<BodyDecl> decls = getBodyDecls();
+    CompilationUnit cu = getCompilationUnit();
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+      BodyDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof MemberClassDecl) {
+        ClassDecl cDecl = ((MemberClassDecl)decl).getClassDecl();
+        Vector<ClassDecl> targets = Program.program.getClassDecls(cDecl.getID());
+        boolean flag = false;
+        for (Iterator<ClassDecl> iter = targets.iterator(); iter.hasNext(); ) {
+          ClassDecl target = iter.next();
+          if (cu != null && cu.importingClass(target)) flag = true;
+        }
+        if (!flag) error(cDecl.getID() + " is not found.");
+      } else {
+        error("class-in-layer style does not allow layers to declare non-member-class member.");
+      }
+    }
+  }
+
+  public boolean CompilationUnit.hasOuterLayer = false;
+  public boolean CompilationUnit.hasClassOrInterface = false;
+
+  public void CompilationUnit.typeCheckCJ() {
+    List<TypeDecl> decls = getTypeDecls();
+    for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+      TypeDecl decl = decls.getChildNoTransform(i);
+      if (decl instanceof OuterLayerDecl) {
+        hasOuterLayer = true;
+        if (hasClassOrInterface)
+          error("class-in-layer and top-level class/interface cannot coexist in the same file");
+      } else {
+        hasClassOrInterface = true;
+        if (hasOuterLayer)
+          error("class-in-layer and top-level class/interface cannot coexist in the same file");
+      }
+    }
+  }
+
   private void ContextDecl.typeCheckCJInternal(PointcutActionSpec spec) {
     List<ParameterDeclaration> params = getMonitorParams();
     for (int i=0; i<params.getNumChildNoTransform(); i++) {
@@ -312,6 +352,32 @@ aspect Check {
       }
     }
     return false;
+  }
+
+  refine NameCheck public void TypeDecl.nameCheck() {
+    if(getEnclosingLayerPre() != null) return;
+
+    if(isTopLevelType() && lookupType(packageName(), name()) != this)
+      error("duplicate member " + name() + " in compilation unit");
+  
+    if(!isTopLevelType() && !isAnonymous() && !isLocalClass() && extractSingleType(enclosingType().memberTypes(name())) != this)
+      error("duplicate member type " + name() + " in type " + enclosingType().typeName());
+
+    // 14.3
+    if(isLocalClass()) {
+      TypeDecl typeDecl = extractSingleType(lookupType(name()));
+      if(typeDecl != null && typeDecl != this && typeDecl.isLocalClass() && enclosingBlock() == typeDecl.enclosingBlock())
+        error("local class named " + name() + " may not be redeclared as a local class in the same block");
+    }
+
+    if(!packageName().equals("") && hasPackage(fullName()))
+      error("duplicate member class and package " + name());
+    
+    // 8.1 & 9.1
+    if(hasEnclosingTypeDecl(name())) {
+      error("type may not have the same simple name as an enclosing type declaration");
+    }
+
   }
 
 }

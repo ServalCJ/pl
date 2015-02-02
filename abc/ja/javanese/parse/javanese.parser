@@ -1,7 +1,9 @@
 /*
  * Syntax extension for monitor declarations.
  */
-TypeDecl type_declaration = monitor_declaration.d {: return d; :};
+TypeDecl type_declaration =
+    monitor_declaration.d {: return d; :}
+ |  outer_layer_declaration.l {: return l; :};
 
 MonitorDecl monitor_declaration =
     CONTEXTGROUP IDENTIFIER LPAREN formal_parameter_list.l? RPAREN
@@ -188,7 +190,8 @@ BodyDecl layer_body_declaration =
     partial_method_declaration.p {: return p; :}
  |  activate_block.a {: return a; :}
  |  deactivate_block.d {: return d; :}
- |  field_declaration.f {: return f; :};
+ |  field_declaration.f {: return f; :}
+ |  class_in_layer_declaration.c {: return c; :};
 
 MethodDecl partial_method_declaration =
     method_declaration.m {: return m; :}
@@ -217,3 +220,14 @@ MethodDecl event_declaration =
           new List(),
           new List(),
           new Opt(new Block(new List()))); :};
+
+/*
+ * Class in layer style
+ */
+OuterLayerDecl outer_layer_declaration =
+    LAYER IDENTIFIER activates.a? layer_body.b
+    {: return new OuterLayerDecl(new Modifiers(), IDENTIFIER, a, b); :};
+
+BodyDecl class_in_layer_declaration =
+    modifiers.m? CLASS IDENTIFIER super.s? interfaces.i? layer_body.b
+    {: return new MemberClassDecl(new ClassDecl(new Modifiers(m), IDENTIFIER, s, i, b)); :};

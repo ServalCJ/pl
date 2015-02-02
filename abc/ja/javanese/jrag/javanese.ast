@@ -60,3 +60,5 @@ ActivateBlock : BodyDecl ::= Block;
 DeactivateBlock : BodyDecl ::= Block;
 
 EventMethodDecl : MethodDecl;
+
+OuterLayerDecl : TypeDecl ::= <ID:String> Activate* BodyDecl*;

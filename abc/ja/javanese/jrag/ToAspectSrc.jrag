@@ -1,6 +1,6 @@
 /*
  * Generating translated AspectJ source files.
- * Copyright (C) Tetsuo Kamina, 2013
+ * Copyright (C) Tetsuo Kamina, 2013-2015
  */
 
 import java.io.File;
@@ -414,4 +414,5 @@ aspect ToAspectSrc {
 
     public void ActivateBlock.toString(StringBuffer buf) {}
     public void DeactivateBlock.toString(StringBuffer buf) {}
+    public void OuterLayerDecl.toString(StringBuffer buf) {}
 }
