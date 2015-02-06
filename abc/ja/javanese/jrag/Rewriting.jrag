@@ -308,7 +308,7 @@ aspect Rewriting {
 //    eq LayerDecl.getBodyDecl(int i).enclosingClass() = this;
     eq EnumConstant.getBodyDecl(int i).enclosingClass() = enclosingClass();
 
-    public boolean MethodAccess.rewritten = false;
+    public boolean Access.rewritten = false;
 
     public boolean MethodAccess.isLayeredMethod() {
         Collection c = null;
@@ -356,6 +356,16 @@ aspect Rewriting {
         }
     }
 
+    rewrite SuperAccess {
+        when(!rewritten && usedInLayerP())
+        to Expr {
+            String outerClass = getEnclosingClassName();
+            SuperAccess sAccess = new SuperAccess("super");
+            sAccess.rewritten = true;
+            return new ParseName(outerClass).qualifiesAccess(sAccess);
+	}
+    }
+
     public ClassDecl ASTNode.usedInLayer() {
         if (this instanceof ClassDecl) {
             ClassDecl cDecl = (ClassDecl)this;
@@ -367,6 +377,10 @@ aspect Rewriting {
         ASTNode parent = getParent();
         if (parent == null) return null;
         return parent.usedInLayer();
+    }
+
+    public boolean ASTNode.usedInLayerP() {
+        return usedInLayer() != null;
     }
 
     public boolean MethodAccess.isImportedMethod() {
