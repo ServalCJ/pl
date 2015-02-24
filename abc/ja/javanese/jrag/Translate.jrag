@@ -298,7 +298,14 @@ aspect Translate {
                                             setActiveParam,
                                             new List(),
                                             new Opt());
+            MethodDecl setActiveCflow = new MethodDecl(new Modifiers(new List().add(new Modifier("abstract")).add(new Modifier("public"))),
+                                            new PrimitiveTypeAccess("void"),
+                                            "setActiveCflow"+aDecl.getID(),
+                                            (List)setActiveParam.fullCopy(),
+                                            new List(),
+                                            new Opt());
             bodies.add(setActive);
+            bodies.add(setActiveCflow);
 
             // generating "abstract public void setInactive(int c);"
             List<ParameterDeclaration> setInactiveParam =
@@ -309,7 +316,14 @@ aspect Translate {
                                             setInactiveParam,
                                             new List(),
                                             new Opt());
+            MethodDecl setInactiveCflow = new MethodDecl(new Modifiers(new List().add(new Modifier("abstract")).add(new Modifier("public"))),
+                                            new PrimitiveTypeAccess("void"),
+                                            "setInactiveCflow"+aDecl.getID(),
+                                            (List)setInactiveParam.fullCopy(),
+                                            new List(),
+                                            new Opt());
             bodies.add(setInactive);
+            bodies.add(setInactiveCflow);
 
             // public int reslvName = value ..
             for (String c : map.keySet()) {
@@ -326,10 +340,12 @@ aspect Translate {
     bodies.add(generateFieldDeclWithInit(new ArrayTypeAccess(new ParseName("Object")), "layers", new ArrayCreationExpr(new ParseName("Object").addArrayDims(new List().add(new Dims(new Opt(new IntegerLiteral("100"))))), new Opt())));
 
     bodies.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "ct", new IntegerLiteral("0")));
+    bodies.add(generateFieldDeclWithInit(new PrimitiveTypeAccess("int"), "ctSync", new IntegerLiteral("0")));
 
     bodies.add(containsLayerDecl());
     bodies.add(removeLayerDecl());
     bodies.add(shiftLayersDecl());
+    bodies.add(shiftLayers1Decl());
 
     CompilationUnit retval =  new CompilationUnit("javanese.generated",
                                                   new List(),
@@ -377,18 +393,29 @@ aspect Translate {
   }
 
   private MethodDecl Program.shiftLayersDecl() {
+    return shiftLayersDeclInternal(true);
+  }
+
+  private MethodDecl Program.shiftLayers1Decl() {
+    return shiftLayersDeclInternal(false);
+  }
+
+  private MethodDecl Program.shiftLayersDeclInternal(boolean remove) {
     List<Stmt> stmts = new List<Stmt>();
-    List initStmts = initI(new ParseName("j"));
-    Expr lt = new LTExpr(new ParseName("i"), new SubExpr(new ParseName("ct"), new IntegerLiteral("1")));
-    Stmt forBody = new ExprStmt(new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("i"))),
-                                                     new ParseName("layers").qualifiesAccess(new ArrayAccess(new AddExpr(new ParseName("i"), new IntegerLiteral("1"))))));
-    Stmt forStmt = new ForStmt(initStmts, new Opt(lt), new List().add(new ExprStmt(new PostIncExpr(new ParseName("i")))), forBody);
+    List initStmts = remove ? initI(new ParseName("j")) : initI(new ParseName("ct"));
+    Expr lt = remove ? new LTExpr(new ParseName("i"), new SubExpr(new ParseName("ct"), new IntegerLiteral("1"))) : new GTExpr(new ParseName("i"), new SubExpr(new ParseName("ctSync"), new IntegerLiteral("1")));
+    Expr leftHand = new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("i")));
+    Expr rightHand = new ParseName("layers").qualifiesAccess(new ArrayAccess(new AddExpr(new ParseName("i"), new IntegerLiteral("1"))));
+    Stmt forBody = remove ? new ExprStmt(new AssignSimpleExpr(leftHand, rightHand)) : new ExprStmt(new AssignSimpleExpr(rightHand, leftHand));
+    List inc = remove ? new List().add(new ExprStmt(new PostIncExpr(new ParseName("i")))) : new List().add(new ExprStmt(new PostDecExpr(new ParseName("i"))));
+                                                     
+    Stmt forStmt = new ForStmt(initStmts, new Opt(lt), inc, forBody);
     stmts.add(forStmt);
-    stmts.add(new ExprStmt(new PostDecExpr(new ParseName("ct"))));
-    return new MethodDecl(new Modifiers(new List().add(new Modifier("private"))),
+    if (remove) stmts.add(new ExprStmt(new PostDecExpr(new ParseName("ct"))));
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))),
                           new PrimitiveTypeAccess("void"),
-                          "shiftLayers",
-                          new List().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "j")),
+                          remove ? "shiftLayers" : "shiftLayers1",
+                          remove ? new List().add(new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "j")) : new List(),
                           new List(),
                           new Opt(new Block(stmts)));
   }
@@ -773,10 +800,14 @@ aspect Translate {
 
         if (unusedLayers.contains(lDecl.getID())) {
           lmBodies.add(setActive(lDecl));
+          lmBodies.add(setActiveCflow(lDecl));
           lmBodies.add(setInactive(lDecl));
+          lmBodies.add(setInactiveCflow(lDecl));
         } else {
           lmBodies.add(setActiveDummy(lDecl.getID()));
+          lmBodies.add(setActiveCflowDummy(lDecl.getID()));
           lmBodies.add(setInactiveDummy(lDecl.getID()));
+          lmBodies.add(setInactiveCflowDummy(lDecl.getID()));
         }
 
         // Generating just once
@@ -833,9 +864,11 @@ aspect Translate {
 
                   Expr cond3 = new AndLogicalExpr(new ParExpr(new EQExpr(new ParseName("lm").qualifiesAccess(new ParseName("current"+layerName)), new IntegerLiteral("0"))), new ParseName("lm").qualifiesAccess(new ParseName(layerName)).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("current"+layerName)))));
                   Expr cond4 = new LogNotExpr(new ParseName("lm").qualifiesAccess(new MethodAccess("containsLayer", new List().add(new ParseName("instanceLayer$"+layerName)))));
-                  Stmt defaultActive = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName("instanceLayer$"+layerName)));
+                  Stmt shiftLayers = new ExprStmt(new ParseName("lm").qualifiesAccess(new MethodAccess("shiftLayers1", new List())));
+                  Stmt defaultActive = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ctSync")))), new ParseName("instanceLayer$"+layerName)));
                   Stmt incCt = new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ct"))));
-                  newStmts.add(new IfStmt(new AndLogicalExpr(cond3,cond4), new Block(new List().add(defaultActive).add(incCt))));
+                  Stmt incCtSync = new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ctSync"))));
+                  newStmts.add(new IfStmt(new AndLogicalExpr(cond3,cond4), new Block(new List().add(shiftLayers).add(defaultActive).add(incCt).add(incCtSync))));
 
                   CompilationUnit classUnit = getCompilationUnit();
                   CompilationUnit monitorUnit = pair.getType().getCompilationUnit();
@@ -913,7 +946,9 @@ aspect Translate {
       for (Iterator<String> iter = unusedLayers.iterator(); iter.hasNext(); ) {
         String unused = iter.next();
         lmBodies.add(setActiveDummy(unused));
+        lmBodies.add(setActiveCflowDummy(unused));
         lmBodies.add(setInactiveDummy(unused));
+        lmBodies.add(setInactiveCflowDummy(unused));
       }
     }
 
@@ -1102,6 +1137,14 @@ aspect Translate {
   }
 
   private MethodDecl ClassDecl.setActive(LayerDecl lDecl) {
+    return setActiveInternal(lDecl, true);
+  }
+
+  private MethodDecl ClassDecl.setActiveCflow(LayerDecl lDecl) {
+    return setActiveInternal(lDecl, false);
+  }
+
+  private MethodDecl ClassDecl.setActiveInternal(LayerDecl lDecl, boolean cflow) {
     String layerName = lDecl.getID();
     List<Stmt> stmts = new List<Stmt>();
 
@@ -1115,10 +1158,18 @@ aspect Translate {
     Access arg = new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName));
     Access contains = new MethodAccess("containsLayer", new List().add(arg));
     Expr cond2 = new LogNotExpr(contains);
-    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
+    String pos = cflow ? "ctSync" : "ct";
+    if (cflow) {
+      Expr layersShift = new MethodAccess("shiftLayers1", new List());
+      layersAddStmts.add(new ExprStmt(layersShift));
+    }
+    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName(pos))), (Expr)arg.fullCopy());
     layersAddStmts.add(new ExprStmt(layersAdd));
     if(lDecl.hasActivateBlock()) {
       layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("activate"+layerName, new List()))));
+    }
+    if (cflow) {
+      layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ctSync"))));
     }
     layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     IfStmt ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
@@ -1130,6 +1181,9 @@ aspect Translate {
     if (lDecl.hasDeactivateBlock()) {
       layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("deactivate"+layerName, new List()))));
     }
+    if (cflow) {
+      layersAddStmts.add(new ExprStmt(new PostDecExpr(new ParseName("ctSync"))));
+    }
     layersAddStmts.add(new ExprStmt(layersRem));
     ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
@@ -1137,10 +1191,19 @@ aspect Translate {
     List<ParameterDeclaration> params = new List<ParameterDeclaration>();
     ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
     params.add(param);
-    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setActive"+layerName, params, new List(), new Opt(new Block(stmts)));
+    String methName = !cflow ? "setActiveCflow" + layerName : "setActive" + layerName;
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), methName, params, new List(), new Opt(new Block(stmts)));
   }
 
   private MethodDecl ClassDecl.setInactive(LayerDecl lDecl) {
+    return setInactiveInternal(lDecl, true);
+  }
+
+  private MethodDecl ClassDecl.setInactiveCflow(LayerDecl lDecl) {
+    return setInactiveInternal(lDecl, false);
+  }
+
+  private MethodDecl ClassDecl.setInactiveInternal(LayerDecl lDecl, boolean cflow) {
     String layerName = lDecl.getID();
     List<Stmt> stmts = new List<Stmt>();
 
@@ -1156,6 +1219,9 @@ aspect Translate {
       layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("deactivate"+layerName, new List()))));
     }
     layersAddStmts.add(new ExprStmt(layersRem));
+    if (cflow) {
+      layersAddStmts.add(new ExprStmt(new PostDecExpr(new ParseName("ctSync"))));
+    }
     IfStmt ifStmt = new IfStmt(cond, new Block(layersAddStmts), new Opt());
     stmts.add(ifStmt);
 
@@ -1164,10 +1230,18 @@ aspect Translate {
     Access arg = new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName));
     Expr contains = new MethodAccess("containsLayer", new List().add(arg));
     Expr cond2 = new LogNotExpr(contains);
-    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName("ct"))), (Expr)arg.fullCopy());
+    String pos = cflow ? "ctSync" : "ct";
+    if (cflow) {
+      Expr layersShift = new MethodAccess("shiftLayers1", new List());
+      layersAddStmts.add(new ExprStmt(layersShift));
+    }
+    Expr layersAdd = new AssignSimpleExpr(new ParseName("layers").qualifiesAccess(new ArrayAccess(new ParseName(pos))), (Expr)arg.fullCopy());
     layersAddStmts.add(new ExprStmt(layersAdd));
     if(lDecl.hasActivateBlock()) {
       layersAddStmts.add(new ExprStmt(new ParseName(getID()).qualifiesAccess(new ThisAccess("this")).qualifiesAccess(new ParseName("instanceLayer$"+layerName)).qualifiesAccess(new MethodAccess("activate"+layerName, new List()))));
+    }
+    if (cflow) {
+      layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ctSync"))));
     }
     layersAddStmts.add(new ExprStmt(new PostIncExpr(new ParseName("ct"))));
     ifStmt = new IfStmt(new AndLogicalExpr(cond,cond2), new Block(layersAddStmts), new Opt());
@@ -1176,7 +1250,8 @@ aspect Translate {
     List<ParameterDeclaration> params = new List<ParameterDeclaration>();
     ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
     params.add(param);
-    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setInactive"+layerName, params, new List(), new Opt(new Block(stmts)));
+    String methName = !cflow ? "setInactiveCflow" + layerName : "setInactive" + layerName;
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), methName, params, new List(), new Opt(new Block(stmts)));
   }
 
   private MethodDecl ClassDecl.setActiveDummy(String lName) {
@@ -1186,11 +1261,25 @@ aspect Translate {
     return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setActive"+lName, params, new List(), new Opt(new Block(new List())));
   }
 
+  private MethodDecl ClassDecl.setActiveCflowDummy(String lName) {
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setActiveCflow"+lName, params, new List(), new Opt(new Block(new List())));
+  }
+
   private MethodDecl ClassDecl.setInactiveDummy(String lName) {
     List<ParameterDeclaration> params = new List<ParameterDeclaration>();
     ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
     params.add(param);
     return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setInactive"+lName, params, new List(), new Opt(new Block(new List())));
+  }
+
+  private MethodDecl ClassDecl.setInactiveCflowDummy(String lName) {
+    List<ParameterDeclaration> params = new List<ParameterDeclaration>();
+    ParameterDeclaration param = new ParameterDeclaration(new Modifiers(new List()), new PrimitiveTypeAccess("int"), "c");
+    params.add(param);
+    return new MethodDecl(new Modifiers(new List().add(new Modifier("public"))), new PrimitiveTypeAccess("void"), "setInactiveCflow"+lName, params, new List(), new Opt(new Block(new List())));
   }
 
   private MethodDecl ClassDecl.copyOriginalMethod(MethodDecl m) {

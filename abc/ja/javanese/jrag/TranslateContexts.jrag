@@ -392,8 +392,14 @@ aspect TranslateContexts {
                                                     new MethodAccess(
                                                             "isActive"+layerName,
                                                             new List().add(new ParseName("lm").qualifiesAccess(new ParseName(resolveName)))));
-                Stmt stmt1 = makeSetActive("setInactive", layerName);
-                Stmt stmt2 = makeSetActive("setActive", layerName);
+                Stmt stmt1, stmt2;
+                if (aDecl.isCflow()) {
+                    stmt1 = makeSetActive("setInactiveCflow", layerName);
+                    stmt2 = makeSetActive("setActiveCflow", layerName);
+                } else {
+                    stmt1 = makeSetActive("setInactive", layerName);
+                    stmt2 = makeSetActive("setActive", layerName);
+                }
                 forStmts.add(new IfStmt(cond, stmt1, stmt2));
             }
         }

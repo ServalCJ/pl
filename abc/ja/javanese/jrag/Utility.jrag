@@ -53,13 +53,25 @@ aspect Utility {
     public Vector<ActivateDecl> MonitorDecl.getActivateDecls() {
         Vector<ActivateDecl> activates = new Vector<ActivateDecl>();
         List<BodyDecl> decls = getBodyDecls();
-        for (int i=0; i<decls.getNumChild(); i++) {
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
             BodyDecl decl = decls.getChildNoTransform(i);
             if (decl instanceof ActivateDecl) {
                 activates.add((ActivateDecl)decl);
             }
         }
         return activates;
+    }
+
+    public ContextDecl MonitorDecl.getContextDecl(String name) {
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+            BodyDecl decl = decls.getChildNoTransform(i);
+            if (decl instanceof ContextDecl) {
+                ContextDecl cDecl = (ContextDecl)decl;
+                if (cDecl.getID().equals(name)) return cDecl;
+            }
+        }
+        return null;
     }
 
     public TypeAccess MonitorDecl.getMonitorType(String name) {
@@ -427,8 +439,8 @@ aspect Utility {
         return null;
     }
 
-    public void ASTNode.insertDebugMessage(List<Stmt> stmts, String message) {
-        stmts.add(new ExprStmt(new ParseName("System").qualifiesAccess(new ParseName("out")).qualifiesAccess(new MethodAccess("println", new List().add(new StringLiteral(message))))));
+    public void ASTNode.insertDebugMessage(List<Stmt> stmts, Expr message) {
+        stmts.add(new ExprStmt(new ParseName("System").qualifiesAccess(new ParseName("out")).qualifiesAccess(new MethodAccess("println", new List().add(message)))));
     }
 
     public FieldDecl ASTNode.generateFieldDeclWithInit(Access type, String id, Expr init) {
@@ -498,6 +510,32 @@ aspect Utility {
                     type.getID().equals(cDecl.getID()))
                     return true;
             }
+        }
+        return false;
+    }
+
+    public boolean ActivateDecl.isCflow() {
+        return getContextCond().isCflow();
+    }
+
+    public boolean ContextCond.isCflow() {
+        if (this instanceof AtomCond) {
+            MonitorDecl m = getEnclosingMonitor();
+            if (m == null) return false;
+            ContextDecl cDecl = m.getContextDecl(((AtomCond)this).getName());
+            if (cDecl == null) return false;
+            FluentSpec spec = cDecl.getFluentSpec();
+            if (spec instanceof PointcutSpec) {
+                PointcutExpr pc = ((PointcutSpec)spec).getPointcutExpr();
+                return pc instanceof CflowPointcutExpr;
+            } else {
+                return false;
+            }
+        } else if (this instanceof NotCond) {
+            return ((NotCond)this).getContextCond().isCflow();
+        } else if (this instanceof BinaryCond) {
+            BinaryCond cond = (BinaryCond)this;
+            return cond.getLeft().isCflow() || cond.getRight().isCflow();
         }
         return false;
     }

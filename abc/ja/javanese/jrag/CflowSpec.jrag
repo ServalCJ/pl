@@ -1,7 +1,7 @@
 /*
  * Javanese transformation to AspectJ
  *  cflow pointcut manipulation
- * Copyright (C) Tetsuo Kamina, 2012-2014
+ * Copyright (C) Tetsuo Kamina, 2012-2015
  */
 
 aspect CflowSpec {
@@ -90,12 +90,12 @@ aspect CflowSpec {
       List<Stmt> elseStmts = new List<Stmt>();
       forStmts.add(new IfStmt(cond, new Block(thenStmts), new Opt(new Block(elseStmts))));
       if (enter) {
-        callSetActiveMethods(thenStmts, "setActive");
+        callSetActiveMethods(thenStmts, "setActiveCflow");
         // for statement "rcv.__cflow$C++;"
         thenStmts.add(new ExprStmt(new PostIncExpr(new ParseName("rcv").qualifiesAccess(new ParseName("__cflow$"+getID())))));
         elseStmts.add(new ExprStmt(new PostIncExpr(new ParseName("rcv").qualifiesAccess(new ParseName("__cflow$"+getID())))));
       } else {
-        callSetActiveMethods(thenStmts, "setInactive");
+        callSetActiveMethods(thenStmts, "setInactiveCflow");
         thenStmts.add(new ExprStmt(new PostDecExpr(new ParseName("rcv").qualifiesAccess(new ParseName("__cflow$"+getID())))));
         elseStmts.add(new ExprStmt(new PostDecExpr(new ParseName("rcv").qualifiesAccess(new ParseName("__cflow$"+getID())))));
       }

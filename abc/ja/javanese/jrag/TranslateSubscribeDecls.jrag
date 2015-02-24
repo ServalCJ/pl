@@ -1,6 +1,6 @@
 /*
  * Subscriber declaration translations
- * Copyright (C) Tetsuo Kamina, 2013-2014
+ * Copyright (C) Tetsuo Kamina, 2013-2015
  */
 
 aspect TranslateSubscribeDecls {
@@ -206,9 +206,13 @@ aspect TranslateSubscribeDecls {
             if (iter.hasNext()) {
                 String layerName = iter.next();
                 Expr ifCond = new InstanceOfExpr(new ParseName("o"), new ParseName("GlobalLayerManager").qualifiesAccess(new ParseName("Layer$" + layerName)));
-                Stmt thenStmt = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt()))));
+                List<Stmt> thenStmts = new List<Stmt>();
+                Block thenBlock = new Block(thenStmts);
+                thenStmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("iter"))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt())))));
+                thenStmts.add(new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ct")))));
+//                thenStmts.add(new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ctSync")))));
                 Stmt elseStmt = getLayerForInternal(iter, id);
-                Stmt ifStmt = new IfStmt(ifCond, thenStmt, elseStmt != null ? new Opt(elseStmt) : new Opt());
+                Stmt ifStmt = new IfStmt(ifCond, thenBlock, elseStmt != null ? new Opt(elseStmt) : new Opt());
                 forBodies.add(ifStmt);
             }
         }
@@ -219,9 +223,13 @@ aspect TranslateSubscribeDecls {
         if (iter.hasNext()) {
             String layerName = iter.next();
             Expr ifCond = new InstanceOfExpr(new ParseName("o"), new ParseName("GlobalLayerManager").qualifiesAccess(new ParseName("Layer$" + layerName)));
-            Stmt thenStmt = new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt()))));
+            List<Stmt> thenStmts = new List<Stmt>();
+            Block thenBlock = new Block(thenStmts);
+            thenStmts.add(new ExprStmt(new AssignSimpleExpr(new ParseName("lm").qualifiesAccess(new ParseName("layers")).qualifiesAccess(new ArrayAccess(new ParseName("lm").qualifiesAccess(new ParseName("ct")))), new ParseName(id).qualifiesAccess(new ClassInstanceExpr(new ParseName("Layer$" + layerName), new List(), new Opt())))));
+            thenStmts.add(new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ct")))));
+//            thenStmts.add(new ExprStmt(new PostIncExpr(new ParseName("lm").qualifiesAccess(new ParseName("ctSync")))));
             Stmt elseStmt = getLayerForInternal(iter, id);
-            return new IfStmt(ifCond, thenStmt, elseStmt != null ? new Opt(elseStmt) : new Opt());
+            return new IfStmt(ifCond, thenBlock, elseStmt != null ? new Opt(elseStmt) : new Opt());
         } else {
             return null;
         }
