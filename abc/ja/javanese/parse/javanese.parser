@@ -166,7 +166,11 @@ BodyDecl class_member_declaration = layer_declaration.l {: return l; :};
 
 LayerDecl layer_declaration =
     LAYER IDENTIFIER activates.a? layer_body.b
-           {: return new LayerDecl(IDENTIFIER, a, b); :};
+           {: return new LayerDecl(IDENTIFIER, a, b); :}
+ |  ENSUREDEACTIVATE LAYER IDENTIFIER activates.a? layer_body.b
+      {:  LayerDecl __l = new LayerDecl(IDENTIFIER, a, b);
+          __l.ensureDeactivate = true;
+          return __l; :};
 
 List activates =
     REQUIRES activate_layer_list.a {: return a; :};
@@ -226,7 +230,11 @@ MethodDecl event_declaration =
  */
 OuterLayerDecl outer_layer_declaration =
     LAYER IDENTIFIER activates.a? layer_body.b
-    {: return new OuterLayerDecl(new Modifiers(), IDENTIFIER, a, b); :};
+    {: return new OuterLayerDecl(new Modifiers(), IDENTIFIER, a, b); :}
+ |  ENSUREDEACTIVATE LAYER IDENTIFIER activates.a? layer_body.b
+    {: OuterLayerDecl __ol = new OuterLayerDecl(new Modifiers(), IDENTIFIER, a, b);
+       __ol.ensureDeactivate = true;
+       return __ol; :};
 
 BodyDecl class_in_layer_declaration =
     modifiers.m? CLASS IDENTIFIER super.s? interfaces.i? layer_body.b

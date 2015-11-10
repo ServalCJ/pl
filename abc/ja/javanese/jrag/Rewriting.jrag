@@ -14,6 +14,34 @@ aspect Rewriting {
      * proceed invocation is placed, which is performed by the following
      * enclosingMethodName() method.
      */
+/*
+    inh MethodDecl MethodDecl.enclosingMethod();
+    inh MethodDecl Program.enclosingMethod();
+
+    eq MethodDecl.getChild().enclosingMethod() = this;
+    eq Program.getChild().enclosingMethod() = null;
+
+    inh MethodDecl Expr.enclosingMethod();
+    inh MethodDecl VariableDecl.enclosingMethod();
+    inh MethodDecl Stmt.enclosingMethod();
+    inh MethodDecl Block.enclosingMethod();
+    inh MethodDecl CatchClause.enclosingMethod();
+    inh MethodDecl Dims.enclosingMethod();
+
+    eq Expr.getChild().enclosingMethod() = enclosingMethod();
+    eq VariableDecl.getChild().enclosingMethod() = enclosingMethod();
+    eq Stmt.getChild().enclosingMethod() = enclosingMethod();
+    eq Block.getChild().enclosingMethod() = enclosingMethod();
+    eq CatchClause.getChild().enclosingMethod() = enclosingMethod();
+    eq Dims.getChild().enclosingMethod() = enclosingMethod();
+
+    eq ActivateBlock.getBlock().enclosingMethod() = null;
+    eq DeactivateBlock.getBlock().enclosingMethod() = null;
+    eq AdviceDecl.getBlock().enclosingMethod() = null;
+    eq FieldDeclaration.getInit().enclosingMethod() = null;
+    eq ConstructorDecl.getConstructorInvocation().enclosingMethod() = null;
+*/
+
     inh MethodDecl Expr.enclosingMethod();
     eq AbstractDot.getLeft().enclosingMethod() = enclosingMethod();
     eq MethodAccess.getArg(int i).enclosingMethod() = enclosingMethod();
@@ -92,6 +120,7 @@ aspect Rewriting {
     inh MethodDecl Dims.enclosingMethod();
     eq VariableDecl.getDims(int i).enclosingMethod() = enclosingMethod();
     eq ArraytypeNamePattern.getDims(int i).enclosingMethod() = null;
+
 
     // rewriting rule for the "proceed" invocation
     public boolean ASTNode.isProceed = false;
@@ -464,6 +493,7 @@ aspect Rewriting {
                 if ((enclosingMethod() == null) ||
                     (enclosingMethod() != null &&
                      !enclosingMethod().getID().equals("dummyConstructor"))) {
+//                    System.out.println("DEBUG2:" + getID() + ":" + enclosingMethod().getID());
                     String monitorArgType = Program.getMonitorArgType(getID());
                     String typeName = monitorArgType.equals("GlobalMonitor") ? "GlobalMonitor" : "Monitor$" + monitorArgType;
                     Program.monitorInstanceMapping.put(typeName, getID());
@@ -471,6 +501,9 @@ aspect Rewriting {
                     a.generated = true;
                     return a;
                 }
+//                else {
+//                    System.out.println("DEBUG:" + getID());
+//                }
             } catch (Exception e) {
                 return this;
             }

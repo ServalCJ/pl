@@ -253,11 +253,29 @@ aspect Check {
 
   public void LayerDecl.typeCheckCJ() {
     List<Activate> acts = getActivates();
+    if (acts.getNumChildNoTransform() > 0 && ensureDeactivate) {
+      error("A layer with ensureDeactivate cannot require any layers.");
+    }
     for (int i=0; i<acts.getNumChildNoTransform(); i++) {
       Activate act = acts.getChildNoTransform(i);
       LayerDecl req = Program.program.searchLayer(act.getID());
       if (req == null) {
         error("requiring unknown layer: " + act.getID());
+      }
+    }
+    if (ensureDeactivate) {
+      ClassDecl enclosing = getEnclosingClass();
+      if (enclosing != null) {
+        List<BodyDecl> decls = getBodyDecls();
+        for (int i=0; i<decls.getNumChildNoTransform(); i++) {
+          BodyDecl decl = decls.getChildNoTransform(i);
+          if (decl instanceof MethodDecl) {
+            String mName = ((MethodDecl)decl).getID();
+            if (!enclosing.hasMethodCJ(mName)) {
+              error("Layer-introduced base method in a layer with ensureDeactivate");
+            }
+          }
+        }
       }
     }
   }

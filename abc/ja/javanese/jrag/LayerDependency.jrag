@@ -1,6 +1,6 @@
 /*
  * ServalCJ auxiliary methods for checking layer dependency.
- * Copyright (C) Tetsuo Kamina, 2014
+ * Copyright (C) Tetsuo Kamina, 2014-2015
  */
 
 aspect LayerDependency {
@@ -32,5 +32,8 @@ aspect LayerDependency {
         }
         return null;
     }
+
+    public boolean LayerDecl.ensureDeactivate = false;
+    public boolean OuterLayerDecl.ensureDeactivate = false;
 
 }

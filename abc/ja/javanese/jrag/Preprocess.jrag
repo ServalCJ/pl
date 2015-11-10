@@ -64,7 +64,9 @@ aspect Preprocess {
           for (Iterator<ClassDecl> iter = targets.iterator(); iter.hasNext(); ) {
             ClassDecl target = iter.next();
             if (cu.importingClass(target)) {
-              target.getBodyDecls().add(new LayerDecl(getID(), (List<Activate>)getActivates().fullCopy(), layerBody));
+              LayerDecl ld = new LayerDecl(getID(), (List<Activate>)getActivates().fullCopy(), layerBody);
+              ld.ensureDeactivate = ensureDeactivate;
+              target.getBodyDecls().add(ld);
               CompilationUnit targetCU = target.getCompilationUnit();
               targetCU.copyImportDeclsIfNotExists(cu);
             }
