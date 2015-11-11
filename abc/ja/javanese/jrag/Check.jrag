@@ -261,6 +261,8 @@ aspect Check {
       LayerDecl req = Program.program.searchLayer(act.getID());
       if (req == null) {
         error("requiring unknown layer: " + act.getID());
+      } else if (req.ensureDeactivate) {
+        error("Layer cannot require a layer with ensureDeactivate.");
       }
     }
     if (ensureDeactivate) {
